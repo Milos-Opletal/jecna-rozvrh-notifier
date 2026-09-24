@@ -178,3 +178,18 @@ jecna-rozvrh-notifier/
 ├── .env.example               # Šablona nastavení
 └── README.md                  # Dokumentace
 ```
+
+---
+
+## 👏 Poděkování & Kredity / Credits
+
+Tento projekt staví na skvělé práci komunity okolo SPŠE Ječná:
+
+- **[Tomáš Hůla (@tomhula)](https://github.com/tomhula)** – za vytvoření open-source Android aplikace [JecnaMobile](https://github.com/tomhula/JecnaMobile), která posloužila jako prvotní inspirace a zdroj logiky parseru rozvrhu.
+- **[Jaroslav Žitník (@jzitnik)](https://github.com/jzitnik)** – za vytvoření a provoz spolehlivého API pro rozvrh a suplování [jecnarozvrh.jzitnik.dev](https://jecnarozvrh.jzitnik.dev/), které tento kontejner využívá pro získávání dat.
+
+---
+
+## 📄 Licence
+
+Tento projekt je open-source pod licencí MIT.
