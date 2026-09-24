@@ -85,15 +85,16 @@ class WebhookDispatcher:
             for c in changes[:25]:  # Discord embed max fields
                 date_display = c.get("formatted_date") or c.get("date")
                 field_title = f"📅 {date_display} ({c['hour']}. hodina)" if c.get("hour", 0) > 0 else f"📢 {date_display}"
+                field_value = (c.get("text") or "Změna v rozvrhu").strip()
+                # Ensure Discord limits: name <= 256, value <= 1024
                 fields.append({
-                    "name": field_title,
-                    "value": c['text'],
+                    "name": field_title[:256],
+                    "value": field_value[:1024] if field_value else "Bez popisu",
                     "inline": False
                 })
 
             discord_payload = {
                 "username": "Ječná Mimořádný Rozvrh",
-                "avatar_url": "https://raw.githubusercontent.com/tomhula/JecnaMobile/main/app/src/main/res/mipmap-xxxhdpi/ic_launcher_jecna.png",
                 "embeds": [
                     {
                         "title": f"🔔 {title}",
@@ -103,12 +104,20 @@ class WebhookDispatcher:
                         "footer": {
                             "text": "SPŠE Ječná • Automatická kontrola"
                         },
-                        "timestamp": datetime.utcnow().isoformat() + "Z"
+                        "timestamp": datetime.now().astimezone().isoformat()
                     }
                 ]
             }
             res = self.session.post(self.discord_webhook_url, json=discord_payload, timeout=10)
             logger.info("Discord webhook response: HTTP %d", res.status_code)
+            if res.status_code >= 400:
+                logger.warning("Discord embed rejected (HTTP %d: %s). Trying plain text fallback...", res.status_code, res.text)
+                fallback_payload = {
+                    "username": "Ječná Mimořádný Rozvrh",
+                    "content": f"🔔 **{title}**\n{message}"
+                }
+                fallback_res = self.session.post(self.discord_webhook_url, json=fallback_payload, timeout=10)
+                logger.info("Discord plain text fallback response: HTTP %d", fallback_res.status_code)
         except Exception as e:
             logger.error("Failed to send Discord webhook: %s", e)
 
