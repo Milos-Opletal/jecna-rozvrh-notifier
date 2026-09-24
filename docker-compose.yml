@@ -5,7 +5,7 @@ services:
     container_name: jecna-rozvrh-notifier
     restart: unless-stopped
     volumes:
-      - ./data:/data
+      - jecna-data:/data
     environment:
       # Check interval in seconds (900 = 15 minutes)
       - CHECK_INTERVAL_SECONDS=${CHECK_INTERVAL_SECONDS:-900}
@@ -49,3 +49,7 @@ services:
 
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
+
+volumes:
+  jecna-data:
+    name: jecna-data

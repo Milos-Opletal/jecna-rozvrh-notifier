@@ -58,5 +58,16 @@ class TestJecnaNotifier(unittest.TestCase):
         self.assertEqual(len(diffs), 1)
         self.assertEqual(diffs[0]["type"], "cancelled")
 
+    def test_deduplication_fingerprint(self):
+        from main import make_fingerprint
+        item = {
+            "date": "2026-09-25",
+            "hour": 4,
+            "type": "new",
+            "text": "A 21 Ho(Lc) spoj."
+        }
+        fp = make_fingerprint(item)
+        self.assertEqual(fp, "2026-09-25#4#new#A 21 Ho(Lc) spoj.")
+
 if __name__ == "__main__":
     unittest.main()
