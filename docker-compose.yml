@@ -10,12 +10,8 @@ services:
       # Check interval in seconds (900 = 15 minutes)
       - CHECK_INTERVAL_SECONDS=${CHECK_INTERVAL_SECONDS:-900}
 
-      # Student class (e.g. C4b) or 'auto' to auto-detect from login
+      # Student class (e.g. C4b)
       - CLASS_NAME=${CLASS_NAME:-C4b}
-
-      # Student login credentials (used to auto-detect class if CLASS_NAME=auto)
-      - JECNA_USERNAME=${JECNA_USERNAME:-}
-      - JECNA_PASSWORD=${JECNA_PASSWORD:-}
 
       # Whether to send alerts on very first run for existing entries (default: false)
       - ALERT_ON_STARTUP=${ALERT_ON_STARTUP:-false}

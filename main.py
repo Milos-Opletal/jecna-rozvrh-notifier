@@ -22,9 +22,7 @@ logging.basicConfig(
 logger = logging.getLogger("JecnaNotifier")
 
 CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL_SECONDS", "900"))
-JECNA_USERNAME = os.getenv("JECNA_USERNAME", "").strip()
-JECNA_PASSWORD = os.getenv("JECNA_PASSWORD", "").strip()
-CLASS_NAME = os.getenv("CLASS_NAME", "").strip()
+CLASS_NAME = os.getenv("CLASS_NAME", "C4b").strip() or "C4b"
 SUBSTITUTION_API_URL = os.getenv("SUBSTITUTION_API_URL", "https://jecnarozvrh.jzitnik.dev/versioned/v3").strip()
 STATE_FILE = os.getenv("STATE_FILE_PATH", "/data/state.json")
 ALERT_ON_STARTUP = os.getenv("ALERT_ON_STARTUP", "false").lower() in ("true", "1", "yes")
@@ -101,15 +99,6 @@ def main():
 
     jecna_client = JecnaClient(api_url=SUBSTITUTION_API_URL)
     webhook_dispatcher = WebhookDispatcher()
-
-    # Determine student class
-    if not CLASS_NAME or CLASS_NAME.lower() == "auto":
-        if JECNA_USERNAME and JECNA_PASSWORD:
-            logger.info("Auto-detecting student class for user '%s'...", JECNA_USERNAME)
-            CLASS_NAME = jecna_client.get_student_class_from_login(JECNA_USERNAME, JECNA_PASSWORD)
-        else:
-            logger.warning("Neither CLASS_NAME nor JECNA_USERNAME/PASSWORD provided. Defaulting to C4b.")
-            CLASS_NAME = "C4b"
 
     logger.info("Monitored class: %s", CLASS_NAME)
 

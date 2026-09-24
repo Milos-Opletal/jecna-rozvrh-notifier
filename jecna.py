@@ -48,47 +48,6 @@ class JecnaClient:
             "Accept": "application/json, text/html, */*"
         })
 
-    def get_student_class_from_login(self, username: str, password: str) -> str:
-        """
-        Logs into spsejecna.cz to retrieve the student's class name (e.g. 'C4b').
-        """
-        try:
-            logger.info("Connecting to SPŠE Ječná portal to detect student class...")
-            # Step 1: GET login page to obtain token
-            res = self.session.get("https://www.spsejecna.cz/user/login", timeout=15)
-            token_match = re.search(r'name=["\']token["\']\s+value=["\']([^"\']+)["\']', res.text)
-            token = token_match.group(1) if token_match else None
-
-            # Step 2: POST credentials
-            post_data = {"user": username, "pass": password}
-            if token:
-                post_data["token"] = token
-
-            login_res = self.session.post("https://www.spsejecna.cz/user/login", data=post_data, timeout=15)
-
-            # Step 3: Parse student class
-            # Profile page contains: <span class="value">4.B</span> or link to /trida/4.B
-            class_patterns = [
-                r'class="value">([1-4]\.[A-Za-z0-9]+)</span>',
-                r'/trida/([1-4]\.[A-Za-z0-9]+)',
-                r'class="user-profile".*?([1-4]\.[A-Za-z0-9]+)'
-            ]
-            for pattern in class_patterns:
-                m = re.search(pattern, login_res.text, re.DOTALL)
-                if m:
-                    raw_class = m.group(1).strip()
-                    # e.g. "4.B" or "4.B (obor C)" -> convert to "C4b" or keep normalized
-                    # In Ječná rozvrh API, classes are typically named like "C4b", "A1a", "E3"
-                    norm = self._normalize_class_name(raw_class)
-                    logger.info("Found student class '%s' (normalized: '%s')", raw_class, norm)
-                    return norm
-
-            logger.warning("Could not parse student class from profile page, falling back to C4b")
-        except Exception as e:
-            logger.error("Error logging in to SPŠE Ječná portal: %s", e)
-
-        return "C4b"
-
     def _normalize_class_name(self, raw: str) -> str:
         """
         Normalizes class string:

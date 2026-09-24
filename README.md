@@ -9,8 +9,8 @@ Při zjištění nové změny (přidání suplování, změna hodiny/učebny, od
 ## 🚀 Hlavní funkce
 
 - ⏱️ **Kontrola každých 15 minut** (přesně odpovídá požadavku a intervalu aktualizací školy).
-- 🎓 **Automatická detekce třídy** z přihlašovacích údajů (např. automaticky získá třídu studenta `C4b`) nebo možnost nastavit `CLASS_NAME` ručně.
-- 💾 **Perzistentní stav** v `/data/state.json` – upozorňuje pouze na skutečně **nové** změny (žádný spam při restartu).
+- 🎓 **Bezpečné a bez přihlašování** – **nejsou potřeba žádné přihlašovací údaje ani heslo**, stačí zadat sledovanou třídu (`CLASS_NAME=C4b`).
+- 💾 **Perzistentní stav** v `/data/state.json` – upozorňuje pouze na skutečně **nové** změny (žádný spam při restartu či aktualizaci).
 - 🌐 **Podpora více webhooků současně**:
   - **Home Assistant Webhook** (pro notifikace na mobil a integraci do chytré domácnosti)
   - **Discord Webhook** (barevný embed s jednotlivými hodinami a předměty)
@@ -40,8 +40,6 @@ Portainer umožňuje nasadit stack přímo z Git repozitáře a automaticky jej 
    - Můžete vybrat **Polling** (např. každých 5 minut Portainer zkontroluje nové commity)
    - Nebo **Webhook** (Portainer vygeneruje URL, které zavolá GitHub Actions na push).
 5. V sekci **Environment variables** nastavte proměnné (viz tabulka níže):
-   - `JECNA_USERNAME`: `vase_uzivatelske_jmeno`
-   - `JECNA_PASSWORD`: `vase_heslo`
    - `CLASS_NAME`: `C4b`
    - `CHECK_INTERVAL_SECONDS`: `900`
    - `HOMEASSISTANT_WEBHOOK_URL`: `http://<HA_IP>:8123/api/webhook/jecna_supl_webhook`
@@ -146,9 +144,7 @@ Pokud chcete okamžité push notifikace na mobilní telefon bez konfigurace Home
 | Proměnná | Výchozí hodnota | Popis |
 |---|---|---|
 | `CHECK_INTERVAL_SECONDS` | `900` (15 minut) | Frekvence kontroly rozvrhu v sekundách |
-| `CLASS_NAME` | `C4b` | Třída studenta (příp. `auto` pro zjištění z profilu) |
-| `JECNA_USERNAME` | `vase_uzivatelske_jmeno` | Uživatelské jméno na portál SPŠE Ječná |
-| `JECNA_PASSWORD` | `vase_heslo` | Heslo na portál SPŠE Ječná |
+| `CLASS_NAME` | `C4b` | Sledovaná třída studenta (např. `C4b`, `A2a`) |
 | `ALERT_ON_STARTUP` | `false` | Zda poslat notifikace na již existující změny při prvním spuštění |
 | `SUBSTITUTION_API_URL` | `https://jecnarozvrh.jzitnik.dev/versioned/v3` | Zdrojový endpoint mimořádného rozvrhu |
 | `STATE_FILE_PATH` | `/data/state.json` | Cesta k souboru s historií změn |
