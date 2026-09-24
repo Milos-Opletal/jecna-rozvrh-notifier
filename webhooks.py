@@ -83,8 +83,10 @@ class WebhookDispatcher:
             logger.info("Sending Discord webhook notification...")
             fields = []
             for c in changes[:25]:  # Discord embed max fields
+                date_display = c.get("formatted_date") or c.get("date")
+                field_title = f"📅 {date_display} ({c['hour']}. hodina)" if c.get("hour", 0) > 0 else f"📢 {date_display}"
                 fields.append({
-                    "name": f"📅 {c['date']} (hodina {c['hour']})" if c['hour'] > 0 else f"📢 {c['date']}",
+                    "name": field_title,
                     "value": c['text'],
                     "inline": False
                 })

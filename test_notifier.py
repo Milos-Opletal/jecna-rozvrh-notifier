@@ -69,5 +69,18 @@ class TestJecnaNotifier(unittest.TestCase):
         fp = make_fingerprint(item)
         self.assertEqual(fp, "2026-09-25#4#new#A 21 Ho(Lc) spoj.")
 
+    def test_czech_date_formatting(self):
+        from datetime import datetime, timedelta
+        from jecna import format_czech_date
+        today = datetime.now().date()
+        today_str = today.strftime("%Y-%m-%d")
+        tomorrow_str = (today + timedelta(days=1)).strftime("%Y-%m-%d")
+
+        today_fmt = format_czech_date(today_str)
+        tomorrow_fmt = format_czech_date(tomorrow_str)
+
+        self.assertTrue(today_fmt.startswith("Dnes ("))
+        self.assertTrue(tomorrow_fmt.startswith("Zítra ("))
+
 if __name__ == "__main__":
     unittest.main()

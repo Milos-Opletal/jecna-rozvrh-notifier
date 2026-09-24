@@ -1,8 +1,43 @@
 import logging
 import re
+from datetime import datetime
 import requests
 
 logger = logging.getLogger(__name__)
+
+def format_czech_date(date_str: str) -> str:
+    """
+    Formats YYYY-MM-DD into friendly Czech text, e.g.:
+    - 'Dnes (čt 24.9.)'
+    - 'Zítra (pá 25.9.)'
+    - 'Pondělí (po 28.9.)'
+    """
+    try:
+        dt = datetime.strptime(date_str, "%Y-%m-%d").date()
+        today = datetime.now().date()
+        diff_days = (dt - today).days
+
+        day_abbrs = ["po", "út", "st", "čt", "pá", "so", "ne"]
+        day_names = ["Pondělí", "Úterý", "Středa", "Čtvrtek", "Pátek", "Sobota", "Neděle"]
+
+        weekday = dt.weekday()
+        abbr = day_abbrs[weekday]
+        date_short = f"{dt.day}.{dt.month}."
+
+        if diff_days == 0:
+            prefix = "Dnes"
+        elif diff_days == 1:
+            prefix = "Zítra"
+        elif diff_days == 2:
+            prefix = "Pozítří"
+        elif diff_days == -1:
+            prefix = "Včera"
+        else:
+            prefix = day_names[weekday]
+
+        return f"{prefix} ({abbr} {date_short})"
+    except Exception:
+        return date_str
 
 class JecnaClient:
     def __init__(self, api_url: str = "https://jecnarozvrh.jzitnik.dev/versioned/v3"):
@@ -120,11 +155,12 @@ class JecnaClient:
     def diff_schedules(self, old_state: dict, new_state: dict) -> list[dict]:
         """
         Finds differences between old schedule state and new schedule state.
-        Returns a list of change objects.
+        Returns a list of change objects with friendly Czech date formatting.
         """
         diffs = []
 
         for date, new_day in new_state.items():
+            formatted_date = format_czech_date(date)
             old_day = old_state.get(date)
 
             if not old_day:
@@ -132,18 +168,20 @@ class JecnaClient:
                 for ch in new_day["changes"]:
                     diffs.append({
                         "date": date,
+                        "formatted_date": formatted_date,
                         "hour": ch["hour"],
                         "type": "new",
                         "text": ch["text"],
-                        "summary": f"{date} ({ch['hour']}. hodina): {ch['text']}"
+                        "summary": f"{formatted_date} ({ch['hour']}. hodina): {ch['text']}"
                     })
                 if new_day["takesPlace"]:
                     diffs.append({
                         "date": date,
+                        "formatted_date": formatted_date,
                         "hour": 0,
                         "type": "takesPlace",
                         "text": new_day["takesPlace"],
-                        "summary": f"{date}: {new_day['takesPlace']}"
+                        "summary": f"{formatted_date} (Oznámení dne): {new_day['takesPlace']}"
                     })
                 continue
 
@@ -158,27 +196,30 @@ class JecnaClient:
                 if new_t and not old_t:
                     diffs.append({
                         "date": date,
+                        "formatted_date": formatted_date,
                         "hour": h,
                         "type": "new",
                         "text": new_t,
-                        "summary": f"{date} ({h}. hodina): {new_t}"
+                        "summary": f"{formatted_date} ({h}. hodina): {new_t}"
                     })
                 elif new_t and old_t and new_t != old_t:
                     diffs.append({
                         "date": date,
+                        "formatted_date": formatted_date,
                         "hour": h,
                         "type": "changed",
                         "old_text": old_t,
                         "text": new_t,
-                        "summary": f"{date} ({h}. hodina): {old_t} -> {new_t}"
+                        "summary": f"{formatted_date} ({h}. hodina): {old_t} -> {new_t}"
                     })
                 elif old_t and not new_t:
                     diffs.append({
                         "date": date,
+                        "formatted_date": formatted_date,
                         "hour": h,
                         "type": "cancelled",
                         "old_text": old_t,
-                        "summary": f"{date} ({h}. hodina): Změna zrušena ({old_t})"
+                        "summary": f"{formatted_date} ({h}. hodina): Změna zrušena ({old_t})"
                     })
 
             old_tp = old_day.get("takesPlace", "").strip()
@@ -186,10 +227,11 @@ class JecnaClient:
             if new_tp and new_tp != old_tp:
                 diffs.append({
                     "date": date,
+                    "formatted_date": formatted_date,
                     "hour": 0,
                     "type": "takesPlace",
                     "text": new_tp,
-                    "summary": f"{date} (Oznámení dne): {new_tp}"
+                    "summary": f"{formatted_date} (Oznámení dne): {new_tp}"
                 })
 
         return diffs
