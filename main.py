@@ -27,6 +27,15 @@ SUBSTITUTION_API_URL = os.getenv("SUBSTITUTION_API_URL", "https://jecnarozvrh.jz
 STATE_FILE = os.getenv("STATE_FILE_PATH", "/data/state.json")
 ALERT_ON_STARTUP = os.getenv("ALERT_ON_STARTUP", "false").lower() in ("true", "1", "yes")
 
+# Behavior options
+REPEAT_ALL_CHANGES = os.getenv("REPEAT_ALL_CHANGES", "true").lower() in ("true", "1", "yes")
+
+# Morning notification options
+MORNING_NOTIFICATION_ENABLED = os.getenv("MORNING_NOTIFICATION_ENABLED", "true").lower() in ("true", "1", "yes")
+MORNING_NOTIFICATION_TIME = os.getenv("MORNING_NOTIFICATION_TIME", "07:00").strip() or "07:00"
+MORNING_NOTIFICATION_TARGETS = os.getenv("MORNING_NOTIFICATION_TARGETS", "all").strip() or "all"
+MORNING_NOTIFICATION_ONLY_IF_CHANGES = os.getenv("MORNING_NOTIFICATION_ONLY_IF_CHANGES", "true").lower() in ("true", "1", "yes")
+
 def make_fingerprint(item: dict) -> str:
     """Generate a unique fingerprint for a change to prevent duplicate notifications."""
     date = item.get("date", "")
@@ -35,10 +44,10 @@ def make_fingerprint(item: dict) -> str:
     text = item.get("text", "")
     return f"{date}#{hour}#{change_type}#{text}"
 
-def load_state() -> tuple[dict | None, set[str]]:
+def load_state() -> tuple[dict | None, set[str], str | None]:
     """
-    Loads saved schedule state and previously notified history fingerprints.
-    Supports both legacy state.json (plain dict of dates) and v2 format.
+    Loads saved schedule state, previously notified history fingerprints,
+    and the date of the last sent morning notification.
     """
     if os.path.exists(STATE_FILE):
         try:
@@ -46,7 +55,11 @@ def load_state() -> tuple[dict | None, set[str]]:
                 data = json.load(f)
             if isinstance(data, dict):
                 if "version" in data and "schedule" in data:
-                    return data.get("schedule", {}), set(data.get("notified_history", []))
+                    return (
+                        data.get("schedule", {}),
+                        set(data.get("notified_history", [])),
+                        data.get("last_morning_notification_date")
+                    )
                 else:
                     # Legacy v1 format migration (dict of date -> day_info)
                     history = set()
@@ -55,13 +68,13 @@ def load_state() -> tuple[dict | None, set[str]]:
                             history.add(f"{d}#{ch.get('hour', 0)}#new#{ch.get('text', '')}")
                         if day_info.get("takesPlace"):
                             history.add(f"{d}#0#takesPlace#{day_info.get('takesPlace')}")
-                    return data, history
+                    return data, history, None
         except Exception as e:
             logger.error("Failed to read state file '%s': %s", STATE_FILE, e)
-    return None, set()
+    return None, set(), None
 
-def save_state(schedule: dict, notified_history: set[str]):
-    """Saves schedule and history, automatically pruning entries older than 14 days."""
+def save_state(schedule: dict, notified_history: set[str], last_morning_date: str | None = None):
+    """Saves schedule, history, and last morning notification date."""
     try:
         os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
         today = datetime.now().date()
@@ -80,6 +93,7 @@ def save_state(schedule: dict, notified_history: set[str]):
         data = {
             "version": 2,
             "last_updated": datetime.now().isoformat(),
+            "last_morning_notification_date": last_morning_date,
             "schedule": schedule,
             "notified_history": sorted(pruned_history)
         }
@@ -88,19 +102,100 @@ def save_state(schedule: dict, notified_history: set[str]):
     except Exception as e:
         logger.error("Failed to save state to '%s': %s", STATE_FILE, e)
 
+def check_and_send_morning_notification(
+    current_schedule: dict,
+    last_morning_date: str | None,
+    webhook_dispatcher: WebhookDispatcher,
+    class_name: str
+) -> str | None:
+    if not MORNING_NOTIFICATION_ENABLED:
+        return last_morning_date
+
+    now = datetime.now()
+    today_str = now.strftime("%Y-%m-%d")
+
+    # Already sent today
+    if last_morning_date == today_str:
+        return last_morning_date
+
+    # Parse target morning time (HH:MM)
+    try:
+        parts = MORNING_NOTIFICATION_TIME.split(":")
+        target_hour = int(parts[0])
+        target_minute = int(parts[1]) if len(parts) > 1 else 0
+    except Exception:
+        target_hour, target_minute = 7, 0
+
+    current_minutes = now.hour * 60 + now.minute
+    target_minutes = target_hour * 60 + target_minute
+
+    # Only send at or after the scheduled time, but before 12:00 noon
+    if current_minutes < target_minutes or now.hour >= 12:
+        return last_morning_date
+
+    # Filter for today's entries only
+    today_data = current_schedule.get(today_str, {})
+    today_changes = today_data.get("changes", [])
+    today_takes_place = today_data.get("takesPlace", "").strip()
+    has_entries = bool(today_changes or today_takes_place)
+
+    if not has_entries and MORNING_NOTIFICATION_ONLY_IF_CHANGES:
+        logger.info("Morning check (%s): No substitutions for today. Skipping morning notification.", today_str)
+        return today_str
+
+    from jecna import format_czech_date
+    formatted_today = format_czech_date(today_str)
+    morning_items = []
+    for ch in today_changes:
+        morning_items.append({
+            "date": today_str,
+            "formatted_date": formatted_today,
+            "hour": ch.get("hour", 0),
+            "type": "morning",
+            "text": ch.get("text", ""),
+            "summary": f"{formatted_today} ({ch.get('hour', 0)}. hodina): {ch.get('text', '')}"
+        })
+    if today_takes_place:
+        morning_items.append({
+            "date": today_str,
+            "formatted_date": formatted_today,
+            "hour": 0,
+            "type": "takesPlace",
+            "text": today_takes_place,
+            "summary": f"{formatted_today} (Oznámení dne): {today_takes_place}"
+        })
+
+    title = f"☀️ Ranní přehled rozvrhu ({class_name})"
+    if has_entries:
+        body = f"☀️ Dobré ráno! Dnešní přehled změn v rozvrhu ({formatted_today}):\n" + "\n".join(f"• {c['summary']}" for c in morning_items)
+    else:
+        body = f"☀️ Dobré ráno! Dnes ({formatted_today}) nemáte v mimořádném rozvrhu žádné změny, platí stálý rozvrh."
+
+    logger.info("☀️ Sending morning notification to targets '%s'...", MORNING_NOTIFICATION_TARGETS)
+    webhook_dispatcher.dispatch_all(
+        target_class=class_name,
+        changes=morning_items,
+        custom_title=title,
+        custom_message=body,
+        targets=MORNING_NOTIFICATION_TARGETS
+    )
+
+    return today_str
+
 def main():
     global CLASS_NAME
     logger.info("==================================================")
     logger.info("🚀 Ječná Mimořádný Rozvrh Notifier Starting")
     logger.info("==================================================")
     logger.info("Check interval: %d seconds (%d minutes)", CHECK_INTERVAL, CHECK_INTERVAL // 60)
+    logger.info("Monitored class: %s", CLASS_NAME)
+    logger.info("Repeat all changes on update: %s", REPEAT_ALL_CHANGES)
+    logger.info("Morning notification: %s (time: %s, targets: %s)", MORNING_NOTIFICATION_ENABLED, MORNING_NOTIFICATION_TIME, MORNING_NOTIFICATION_TARGETS)
     logger.info("State file: %s", STATE_FILE)
     logger.info("API URL: %s", SUBSTITUTION_API_URL)
 
     jecna_client = JecnaClient(api_url=SUBSTITUTION_API_URL)
     webhook_dispatcher = WebhookDispatcher()
-
-    logger.info("Monitored class: %s", CLASS_NAME)
 
     if not webhook_dispatcher.has_any_webhook():
         logger.warning("⚠️ No webhooks are currently configured! Set HOMEASSISTANT_WEBHOOK_URL, DISCORD_WEBHOOK_URL, NTFY_URL, etc.")
@@ -115,7 +210,7 @@ def main():
         )
 
     # Initial state check
-    schedule_state, notified_history = load_state()
+    schedule_state, notified_history, last_morning_date = load_state()
     is_first_run = (schedule_state is None)
 
     if not is_first_run:
@@ -141,12 +236,9 @@ def main():
                             notified_history.add(f"{d}#0#takesPlace#{day_info.get('takesPlace')}")
 
                     schedule_state = current_schedule
-                    save_state(schedule_state, notified_history)
+                    save_state(schedule_state, notified_history, last_morning_date)
                     is_first_run = False
                     logger.info("✅ Baseline state primed with %d existing entries. No old notifications will be sent.", len(notified_history))
-
-                    if ALERT_ON_STARTUP:
-                        logger.info("ALERT_ON_STARTUP is enabled, but entries are already recorded in baseline.")
                 else:
                     diffs = jecna_client.diff_schedules(schedule_state, current_schedule)
                     if diffs:
@@ -165,14 +257,46 @@ def main():
                             for d in fresh_diffs:
                                 logger.info("   -> %s", d["summary"])
 
-                            webhook_dispatcher.dispatch_all(CLASS_NAME, fresh_diffs)
+                            if REPEAT_ALL_CHANGES:
+                                # When sending, include all currently active changes (repeat everything)
+                                all_active = jecna_client.get_all_active_changes(current_schedule)
+                                cancelled_items = [d for d in fresh_diffs if d.get("type") == "cancelled"]
+
+                                items_to_send = cancelled_items + all_active
+                                if not items_to_send and cancelled_items:
+                                    items_to_send = cancelled_items
+
+                                title = f"🔔 Mimořádný rozvrh ({CLASS_NAME})"
+                                if len(items_to_send) == 1:
+                                    body_msg = f"Zjištěna změna v rozvrhu:\n• {items_to_send[0]['summary']}"
+                                else:
+                                    body_msg = f"Zjištěna změna v rozvrhu! Aktuální přehled změn ({len(items_to_send)}):\n" + "\n".join(f"• {c['summary']}" for c in items_to_send)
+
+                                webhook_dispatcher.dispatch_all(
+                                    target_class=CLASS_NAME,
+                                    changes=items_to_send,
+                                    custom_title=title,
+                                    custom_message=body_msg
+                                )
+                            else:
+                                webhook_dispatcher.dispatch_all(CLASS_NAME, fresh_diffs)
                         else:
                             logger.info("ℹ️ Schedule changed, but all changes were already previously notified. No duplicate notification sent.")
 
                         schedule_state = current_schedule
-                        save_state(schedule_state, notified_history)
+                        save_state(schedule_state, notified_history, last_morning_date)
                     else:
                         logger.info("✅ No changes detected for class %s. Everything is up to date.", CLASS_NAME)
+
+                # Check and send morning notification if time has arrived
+                last_morning_date = check_and_send_morning_notification(
+                    current_schedule=current_schedule,
+                    last_morning_date=last_morning_date,
+                    webhook_dispatcher=webhook_dispatcher,
+                    class_name=CLASS_NAME
+                )
+                save_state(schedule_state, notified_history, last_morning_date)
+
             else:
                 logger.warning("Could not retrieve data from substitution server. Will retry next interval.")
 

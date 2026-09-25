@@ -82,5 +82,36 @@ class TestJecnaNotifier(unittest.TestCase):
         self.assertTrue(today_fmt.startswith("Dnes ("))
         self.assertTrue(tomorrow_fmt.startswith("Zítra ("))
 
+    def test_normalize_targets(self):
+        from webhooks import normalize_targets
+        self.assertEqual(normalize_targets("haos"), {"ha"})
+        self.assertEqual(normalize_targets("haos,discord"), {"ha", "discord"})
+        self.assertEqual(normalize_targets("all"), {"all"})
+        self.assertEqual(normalize_targets(""), {"all"})
+        self.assertEqual(normalize_targets(None), {"all"})
+        self.assertEqual(normalize_targets("ntfy,telegram"), {"ntfy", "telegram"})
+
+    def test_get_all_active_changes(self):
+        from datetime import datetime, timedelta
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        tomorrow_str = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+
+        schedule = {
+            today_str: {
+                "changes": [{"hour": 1, "text": "TP odpadá"}],
+                "takesPlace": ""
+            },
+            tomorrow_str: {
+                "changes": [{"hour": 4, "text": "TV He(Lc)+"}],
+                "takesPlace": "Exkurze"
+            }
+        }
+        active = self.client.get_all_active_changes(schedule)
+        self.assertEqual(len(active), 3)
+        self.assertEqual(active[0]["hour"], 1)
+        self.assertEqual(active[0]["text"], "TP odpadá")
+        self.assertEqual(active[1]["hour"], 4)
+        self.assertEqual(active[2]["type"], "takesPlace")
+
 if __name__ == "__main__":
     unittest.main()

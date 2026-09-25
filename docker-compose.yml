@@ -16,6 +16,15 @@ services:
       # Whether to send alerts on very first run for existing entries (default: false)
       - ALERT_ON_STARTUP=${ALERT_ON_STARTUP:-false}
 
+      # When a change is detected, repeat all currently active changes in the notification (default: true)
+      - REPEAT_ALL_CHANGES=${REPEAT_ALL_CHANGES:-true}
+
+      # Morning daily overview notification options
+      - MORNING_NOTIFICATION_ENABLED=${MORNING_NOTIFICATION_ENABLED:-true}
+      - MORNING_NOTIFICATION_TIME=${MORNING_NOTIFICATION_TIME:-07:00}
+      - MORNING_NOTIFICATION_TARGETS=${MORNING_NOTIFICATION_TARGETS:-all}
+      - MORNING_NOTIFICATION_ONLY_IF_CHANGES=${MORNING_NOTIFICATION_ONLY_IF_CHANGES:-true}
+
       # Substitution API URL
       - SUBSTITUTION_API_URL=${SUBSTITUTION_API_URL:-https://jecnarozvrh.jzitnik.dev/versioned/v3}
 

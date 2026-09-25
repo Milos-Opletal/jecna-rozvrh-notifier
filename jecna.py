@@ -194,3 +194,45 @@ class JecnaClient:
                 })
 
         return diffs
+
+    def get_all_active_changes(self, schedule: dict) -> list[dict]:
+        """
+        Returns all active changes from schedule for today and upcoming dates.
+        Sorted chronologically by date and hour.
+        """
+        today = datetime.now().date()
+        active_list = []
+
+        for date_str in sorted(schedule.keys()):
+            try:
+                d_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+                if d_date < today:
+                    continue  # Do not include past dates
+            except Exception:
+                pass
+
+            day_info = schedule.get(date_str, {})
+            formatted_date = format_czech_date(date_str)
+
+            for ch in day_info.get("changes", []):
+                active_list.append({
+                    "date": date_str,
+                    "formatted_date": formatted_date,
+                    "hour": ch.get("hour", 0),
+                    "type": "active",
+                    "text": ch.get("text", ""),
+                    "summary": f"{formatted_date} ({ch.get('hour', 0)}. hodina): {ch.get('text', '')}"
+                })
+
+            tp = day_info.get("takesPlace", "").strip()
+            if tp:
+                active_list.append({
+                    "date": date_str,
+                    "formatted_date": formatted_date,
+                    "hour": 0,
+                    "type": "takesPlace",
+                    "text": tp,
+                    "summary": f"{formatted_date} (Oznámení dne): {tp}"
+                })
+
+        return active_list

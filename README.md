@@ -11,6 +11,8 @@ Při zjištění nové změny (přidání suplování, změna hodiny/učebny, od
 - ⏱️ **Kontrola každých 15 minut** (přesně odpovídá požadavku a intervalu aktualizací školy).
 - 🎓 **Bezpečné a bez přihlašování** – **nejsou potřeba žádné přihlašovací údaje ani heslo**, stačí zadat sledovanou třídu (`CLASS_NAME=C4b`).
 - 💾 **Perzistentní stav** v `/data/state.json` – upozorňuje pouze na skutečně **nové** změny (žádný spam při restartu či aktualizaci).
+- 📋 **Kompletní přehled v každé notifikaci** – při zjištění nové změny zopakuje všechna aktuální suplování pro třídu, takže vidíte ucelený stav rozvrhu.
+- ☀️ **Volitelná ranní notifikace** – možnost nastavit si ranní souhrn (např. v 07:00) a vybrat, na které webhooky má dorazit (např. pouze Home Assistant nebo Home Assistant + Discord).
 - 🌐 **Podpora více webhooků současně**:
   - **Home Assistant Webhook** (pro notifikace na mobil a integraci do chytré domácnosti)
   - **Discord Webhook** (barevný embed s jednotlivými hodinami a předměty)
@@ -146,6 +148,11 @@ Pokud chcete okamžité push notifikace na mobilní telefon bez konfigurace Home
 | `CHECK_INTERVAL_SECONDS` | `900` (15 minut) | Frekvence kontroly rozvrhu v sekundách |
 | `CLASS_NAME` | `C4b` | Sledovaná třída studenta (např. `C4b`, `A2a`) |
 | `ALERT_ON_STARTUP` | `false` | Zda poslat notifikace na již existující změny při prvním spuštění |
+| `REPEAT_ALL_CHANGES` | `true` | Při nalezení změny poslat kompletní přehled všech platných suplování |
+| `MORNING_NOTIFICATION_ENABLED` | `true` | Zda posílat ranní souhrnnou notifikaci |
+| `MORNING_NOTIFICATION_TIME` | `07:00` | Čas ranní notifikace ve formátu `HH:MM` |
+| `MORNING_NOTIFICATION_TARGETS` | `all` | Cílové služby pro ranní notifikaci (`all`, `haos`, `discord`, `haos,discord`, atd.) |
+| `MORNING_NOTIFICATION_ONLY_IF_CHANGES` | `true` | Poslat ranní notifikaci pouze, pokud jsou pro daný den změny |
 | `SUBSTITUTION_API_URL` | `https://jecnarozvrh.jzitnik.dev/versioned/v3` | Zdrojový endpoint mimořádného rozvrhu |
 | `STATE_FILE_PATH` | `/data/state.json` | Cesta k souboru s historií změn |
 | `HOMEASSISTANT_WEBHOOK_URL` | `""` | URL Home Assistant webhooku |

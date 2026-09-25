@@ -5,6 +5,39 @@ import requests
 
 logger = logging.getLogger(__name__)
 
+def normalize_targets(targets_input: str | list[str] | set[str] | None) -> set[str]:
+    """
+    Normalizes target names (e.g. 'haos,discord' -> {'ha', 'discord'}).
+    Returns {'all'} if empty or containing 'all' or '*'.
+    """
+    if not targets_input:
+        return {"all"}
+    if isinstance(targets_input, str):
+        items = [x.strip().lower() for x in targets_input.split(",") if x.strip()]
+    else:
+        items = [str(x).strip().lower() for x in targets_input if str(x).strip()]
+
+    if not items or any(x in ("all", "*") for x in items):
+        return {"all"}
+
+    normalized = set()
+    for item in items:
+        if item in ("ha", "haos", "homeassistant", "home_assistant"):
+            normalized.add("ha")
+        elif item == "discord":
+            normalized.add("discord")
+        elif item in ("telegram", "tg"):
+            normalized.add("telegram")
+        elif item in ("ntfy", "ntfy.sh"):
+            normalized.add("ntfy")
+        elif item == "slack":
+            normalized.add("slack")
+        elif item in ("generic", "custom"):
+            normalized.add("generic")
+        else:
+            normalized.add(item)
+    return normalized
+
 class WebhookDispatcher:
     def __init__(self):
         self.session = requests.Session()
@@ -26,15 +59,27 @@ class WebhookDispatcher:
             self.generic_webhook_url
         ])
 
-    def dispatch_all(self, target_class: str, changes: list[dict]):
-        if not changes:
+    def dispatch_all(
+        self,
+        target_class: str,
+        changes: list[dict],
+        custom_title: str | None = None,
+        custom_message: str | None = None,
+        targets: str | list[str] | set[str] | None = None
+    ):
+        if not changes and not custom_message:
             return
 
-        title = f"Mimořádný rozvrh ({target_class})"
-        if len(changes) == 1:
+        norm_targets = normalize_targets(targets)
+        is_all = "all" in norm_targets
+
+        title = custom_title or f"Mimořádný rozvrh ({target_class})"
+        if custom_message:
+            body_message = custom_message
+        elif len(changes) == 1:
             body_message = changes[0]["summary"]
         else:
-            body_message = f"Zjištěno {len(changes)} nových změn:\n" + "\n".join(f"• {c['summary']}" for c in changes)
+            body_message = f"Aktuální přehled změn ({len(changes)}):\n" + "\n".join(f"• {c['summary']}" for c in changes)
 
         payload_base = {
             "event": "jecna_substitution_change",
@@ -47,27 +92,27 @@ class WebhookDispatcher:
         }
 
         # 1. Home Assistant Webhook
-        if self.ha_webhook_url:
+        if self.ha_webhook_url and (is_all or "ha" in norm_targets):
             self._send_homeassistant(payload_base)
 
         # 2. Discord Webhook
-        if self.discord_webhook_url:
+        if self.discord_webhook_url and (is_all or "discord" in norm_targets):
             self._send_discord(title, body_message, target_class, changes)
 
         # 3. Telegram
-        if self.telegram_token and self.telegram_chat_id:
+        if self.telegram_token and self.telegram_chat_id and (is_all or "telegram" in norm_targets):
             self._send_telegram(title, changes)
 
         # 4. ntfy.sh Push Notification
-        if self.ntfy_url:
+        if self.ntfy_url and (is_all or "ntfy" in norm_targets):
             self._send_ntfy(title, body_message)
 
         # 5. Slack Webhook
-        if self.slack_webhook_url:
+        if self.slack_webhook_url and (is_all or "slack" in norm_targets):
             self._send_slack(title, body_message)
 
         # 6. Generic Webhook
-        if self.generic_webhook_url:
+        if self.generic_webhook_url and (is_all or "generic" in norm_targets):
             self._send_generic(payload_base)
 
     def _send_homeassistant(self, payload: dict):
