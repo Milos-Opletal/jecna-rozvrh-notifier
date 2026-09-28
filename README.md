@@ -44,6 +44,7 @@ Portainer umožňuje nasadit stack přímo z Git repozitáře a automaticky jej 
 5. V sekci **Environment variables** nastavte proměnné (viz tabulka níže):
    - `CLASS_NAME`: `C4b`
    - `CHECK_INTERVAL_SECONDS`: `900`
+   - `TZ`: `Europe/Prague`
    - `HOMEASSISTANT_WEBHOOK_URL`: `http://<HA_IP>:8123/api/webhook/jecna_supl_webhook`
    - (volitelně) `DISCORD_WEBHOOK_URL`, `NTFY_URL`, atd.
 6. Klikněte na **Deploy the stack**.
@@ -141,17 +142,76 @@ Pokud chcete okamžité push notifikace na mobilní telefon bez konfigurace Home
 
 ---
 
+## ☀️ Ranní souhrnná notifikace (Morning Notification)
+
+Kontejner umí každé ráno odeslat souhrn změn v rozvrhu na daný den (např. v 07:00). Můžete si zvolit, na které webhooky má ranní notifikace přijít – například aby se mimořádné změny během dne posílaly na Discord celé třídě, ale ranní notifikace přišla pouze vám do Home Assistantu nebo přes ntfy.
+
+V `.env` nastavte:
+```env
+MORNING_NOTIFICATION_ENABLED=true
+MORNING_NOTIFICATION_TIME=07:00
+MORNING_NOTIFICATION_TARGETS=all
+MORNING_NOTIFICATION_ONLY_IF_CHANGES=true
+```
+
+### Parametry a možné hodnoty:
+
+- **`MORNING_NOTIFICATION_ENABLED`**: `true` / `false` – zapnutí nebo vypnutí ranního souhrnu (výchozí: `true`).
+- **`MORNING_NOTIFICATION_TIME`**: Čas odeslání ve formátu `HH:MM` (výchozí: `07:00`). Čas se řídí lokálním časem kontejneru (viz sekce Časové pásmo níže).
+- **`MORNING_NOTIFICATION_TARGETS`**: Cílové služby, kam má ranní zpráva dorazit. Výchozí je `all`.
+
+  **Všechny podporované hodnoty (case-insensitive):**
+
+  | Hodnota / Alias | Cílová služba |
+  |---|---|
+  | `all` nebo `*` | **Všechny** nakonfigurované webhooky (výchozí) |
+  | `ha`, `haos`, `homeassistant`, `home_assistant` | Pouze **Home Assistant** webhook |
+  | `discord` | Pouze **Discord** webhook |
+  | `telegram`, `tg` | Pouze **Telegram** bot |
+  | `ntfy`, `ntfy.sh` | Pouze mobilní push notifikace **ntfy** |
+  | `slack` | Pouze **Slack** webhook |
+  | `generic`, `custom` | Pouze **obecný JSON** webhook |
+
+  Hodnoty lze libovolně **kombinovat čárkou**:
+  - `MORNING_NOTIFICATION_TARGETS=all` *(odešle všem službám)*
+  - `MORNING_NOTIFICATION_TARGETS=haos` *(odešle pouze do Home Assistantu)*
+  - `MORNING_NOTIFICATION_TARGETS=ntfy` *(odešle pouze na ntfy do telefonu)*
+  - `MORNING_NOTIFICATION_TARGETS=haos,discord` *(odešle do HA a na Discord)*
+  - `MORNING_NOTIFICATION_TARGETS=ntfy,telegram` *(odešle na ntfy a do Telegramu)*
+
+- **`MORNING_NOTIFICATION_ONLY_IF_CHANGES`**:
+  - `true` *(výchozí)*: Notifikace se odešle pouze v případě, že jsou pro dnešní den v rozvrhu evidována nějaká suplování nebo celodenní akce. Pokud změny nejsou, ráno vám zbytečně nepípá telefon.
+  - `false`: Ranní zpráva odejde každé ráno bez ohledu na změny (pokud změny nejsou, oznámí: *"nemáte žádné změny, platí stálý rozvrh"*).
+
+---
+
+### 🕒 Čas v kontejneru a časové pásmo (Local Time vs UTC+0)
+
+Aby ranní notifikace odešla přesně v zadaný čas (např. `07:00`), musí kontejner pracovat ve správném časovém pásmu:
+
+- V Docker image je nainstalován balíček `tzdata` a výchozí proměnná je nastavena na **`TZ=Europe/Prague`**.
+- Díky tomu běží kontejner v **místním českém čase** (středoevropský čas CET UTC+1 / letní čas CEST UTC+2). Zadaný čas `07:00` je tedy skutečně **7:00 ráno českého času**.
+- Pokud byste proměnnou `TZ` nastavili na `UTC` (nebo časové pásmo neuvedli v prostředí bez `tzdata`), kontejner by běžel v **UTC (+0)** – v takovém případě by `07:00` v kontejneru znamenalo `09:00` (letní čas) nebo `08:00` (zimní čas) v ČR.
+- **Ověření v logu:** Při každém startu kontejner přehledně vypíše svůj aktuální detekovaný čas i časové pásmo:
+  ```text
+  Container local time: 2026-09-25 09:16:08 (CEST, UTC+0200)
+  ```
+  Stav můžete kdykoli zkontrolovat příkazem `docker logs jecna-rozvrh-notifier`.
+
+---
+
 ## ⚙️ Seznam proměnných prostředí
 
 | Proměnná | Výchozí hodnota | Popis |
 |---|---|---|
+| `TZ` | `Europe/Prague` | Časové pásmo kontejneru (zajišťuje lokální čas CET/CEST, aby notifikace neodcházela v UTC+0) |
 | `CHECK_INTERVAL_SECONDS` | `900` (15 minut) | Frekvence kontroly rozvrhu v sekundách |
 | `CLASS_NAME` | `C4b` | Sledovaná třída studenta (např. `C4b`, `A2a`) |
 | `ALERT_ON_STARTUP` | `false` | Zda poslat notifikace na již existující změny při prvním spuštění |
 | `REPEAT_ALL_CHANGES` | `true` | Při nalezení změny poslat kompletní přehled všech platných suplování |
 | `MORNING_NOTIFICATION_ENABLED` | `true` | Zda posílat ranní souhrnnou notifikaci |
-| `MORNING_NOTIFICATION_TIME` | `07:00` | Čas ranní notifikace ve formátu `HH:MM` |
-| `MORNING_NOTIFICATION_TARGETS` | `all` | Cílové služby pro ranní notifikaci (`all`, `haos`, `discord`, `haos,discord`, atd.) |
+| `MORNING_NOTIFICATION_TIME` | `07:00` | Čas ranní notifikace ve formátu `HH:MM` (místní čas dle `TZ`) |
+| `MORNING_NOTIFICATION_TARGETS` | `all` | Cílové služby pro ranní notifikaci (`all`, `haos`, `discord`, `ntfy`, atd.) |
 | `MORNING_NOTIFICATION_ONLY_IF_CHANGES` | `true` | Poslat ranní notifikaci pouze, pokud jsou pro daný den změny |
 | `SUBSTITUTION_API_URL` | `https://jecnarozvrh.jzitnik.dev/versioned/v3` | Zdrojový endpoint mimořádného rozvrhu |
 | `STATE_FILE_PATH` | `/data/state.json` | Cesta k souboru s historií změn |

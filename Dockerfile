@@ -2,8 +2,12 @@ FROM python:3.12-alpine
 
 WORKDIR /app
 
+# Install tzdata so Alpine supports Europe/Prague and local timezones
+RUN apk add --no-cache tzdata
+
 # Prevent Python from writing .pyc and enable unbuffered output
-ENV PYTHONDONTWRITEBYTECODE=1 \
+ENV TZ=Europe/Prague \
+    PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     CHECK_INTERVAL_SECONDS=900 \
     CLASS_NAME=C4b \

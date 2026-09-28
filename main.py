@@ -187,10 +187,15 @@ def main():
     logger.info("==================================================")
     logger.info("🚀 Ječná Mimořádný Rozvrh Notifier Starting")
     logger.info("==================================================")
+    now_local = datetime.now().astimezone()
+    tz_name = now_local.tzname() or "UTC"
+    utc_offset = now_local.strftime("%z")
+    logger.info("Container local time: %s (%s, UTC%s)", now_local.strftime("%Y-%m-%d %H:%M:%S"), tz_name, utc_offset)
     logger.info("Check interval: %d seconds (%d minutes)", CHECK_INTERVAL, CHECK_INTERVAL // 60)
     logger.info("Monitored class: %s", CLASS_NAME)
     logger.info("Repeat all changes on update: %s", REPEAT_ALL_CHANGES)
-    logger.info("Morning notification: %s (time: %s, targets: %s)", MORNING_NOTIFICATION_ENABLED, MORNING_NOTIFICATION_TIME, MORNING_NOTIFICATION_TARGETS)
+    logger.info("Morning notification: enabled=%s (time: %s, targets: %s, only_if_changes=%s)",
+                MORNING_NOTIFICATION_ENABLED, MORNING_NOTIFICATION_TIME, MORNING_NOTIFICATION_TARGETS, MORNING_NOTIFICATION_ONLY_IF_CHANGES)
     logger.info("State file: %s", STATE_FILE)
     logger.info("API URL: %s", SUBSTITUTION_API_URL)
 

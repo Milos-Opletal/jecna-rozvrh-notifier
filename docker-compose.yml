@@ -19,6 +19,9 @@ services:
       # When a change is detected, repeat all currently active changes in the notification (default: true)
       - REPEAT_ALL_CHANGES=${REPEAT_ALL_CHANGES:-true}
 
+      # Container timezone (Europe/Prague for local Czech time CET/CEST)
+      - TZ=${TZ:-Europe/Prague}
+
       # Morning daily overview notification options
       - MORNING_NOTIFICATION_ENABLED=${MORNING_NOTIFICATION_ENABLED:-true}
       - MORNING_NOTIFICATION_TIME=${MORNING_NOTIFICATION_TIME:-07:00}
