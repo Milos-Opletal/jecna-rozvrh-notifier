@@ -68,9 +68,89 @@ class JecnaClient:
             logger.error("Failed to fetch substitutions from %s: %s", self.api_url, e)
             return None
 
+    def is_takes_place_relevant(self, takes_place: str, target_class: str) -> bool:
+        """
+        Determines whether takesPlace / day announcement text is relevant to target_class.
+        Returns True if:
+        1. It is a recognized school-wide cancellation (e.g. reditelske volno, statni svatek).
+        2. It explicitly references target_class or target_class grade (e.g. C4b, 4.B, 4. rocnik).
+        Returns False if:
+        - It references other classes/grades without mentioning target_class.
+        - It is empty or a general unrelated note.
+        """
+        if not takes_place or not takes_place.strip():
+            return False
+
+        text = takes_place.strip()
+        norm_class = self._normalize_class_name(target_class).lower()
+
+        # Whole-school holidays / cancellations affecting all students
+        whole_school_patterns = [
+            r'[rř]editelsk[ée]\s+volno',
+            r'st[aá]tn[ií]\s+sv[aá]tek',
+            r'cel[aáeé]\s+[sš]kola',
+            r'celo[sš]kolsk[yýeé]',
+            r'zkr[aá]cen[aáeé]\s+v[yý]uka',
+            r'konec\s+v[yý]uky'
+        ]
+        for pattern in whole_school_patterns:
+            if re.search(pattern, text, re.IGNORECASE):
+                return True
+
+        # Extract grade digit (e.g. '4' from 'C4b')
+        grade_match = re.search(r'\d', target_class)
+        grade_digit = grade_match.group(0) if grade_match else None
+
+        # Extract section letter (e.g. 'b' from 'C4b' or '4.B')
+        letters = re.findall(r'[A-Za-z]', target_class)
+        section_letter = letters[-1].lower() if letters else None
+
+        # Build class-specific patterns for target_class
+        class_patterns = [
+            rf'\b{re.escape(target_class)}\b',
+            rf'\b{re.escape(norm_class)}\b',
+        ]
+        if grade_digit and section_letter:
+            class_patterns.extend([
+                rf'\b{grade_digit}\s*\.\s*{section_letter}\b',
+                rf'\b{grade_digit}{section_letter}\b',
+            ])
+            if len(letters) >= 2:
+                field_letter = letters[0].lower()
+                class_patterns.append(rf'\b{field_letter}\s*\.?\s*{grade_digit}\s*\.?\s*{section_letter}\b')
+
+        for pattern in class_patterns:
+            if re.search(pattern, text, re.IGNORECASE):
+                return True
+
+        # Grade-level patterns (e.g. 4. rocnik)
+        if grade_digit:
+            czech_grade_names = {
+                "1": r'prvn[ií][\w]*',
+                "2": r'druh[yýeéí][\w]*',
+                "3": r't[rř]et[ií][\w]*',
+                "4": r'[cč]tvrt[yýeéí][\w]*'
+            }
+            grade_patterns = [
+                rf'\b{grade_digit}\s*\.\s*ro[cč]n[ií]k[\w]*',
+                rf'\b{grade_digit}\s*\.\s*ro[cč]\b',
+            ]
+            if grade_digit in czech_grade_names:
+                grade_patterns.append(rf'\b{czech_grade_names[grade_digit]}\s+ro[cč]n[ií]k[\w]*')
+            if grade_digit == "4":
+                grade_patterns.append(r'\bmaturitn[ií][\w]*\s+ro[cč]n[ií]k[\w]*')
+                grade_patterns.append(r'\bmaturitn[ií][\w]*\s+(?:zkou[sš]k|p[ií]sem|didaktick)[\w]*')
+
+            for pattern in grade_patterns:
+                if re.search(pattern, text, re.IGNORECASE):
+                    return True
+
+        return False
+
     def extract_class_schedule(self, api_data: dict, target_class: str) -> dict:
         """
         Extracts substitution entries for target_class across all dates.
+        Only includes takesPlace if it specifically pertains to target_class.
         Returns: {
             "2026-09-24": {
                 "changes": [ {"hour": 1, "text": "2/2 TP 21 (Ad) odpadá"}, ... ],
@@ -88,7 +168,8 @@ class JecnaClient:
 
             matched_key = None
             for key in changes_by_class.keys():
-                if self._normalize_class_name(key).lower() == norm_target:
+                norm_key = self._normalize_class_name(key).lower()
+                if norm_key == norm_target or norm_target.startswith(norm_key) or norm_key.endswith(norm_target):
                     matched_key = key
                     break
 
@@ -97,15 +178,17 @@ class JecnaClient:
                 for hour_idx, item in enumerate(changes_by_class[matched_key]):
                     if item and isinstance(item, dict) and item.get("text"):
                         clean_text = " ".join(item.get("text").split())
-                        changes_list.append({
-                            "hour": hour_idx + 1,
-                            "text": clean_text
-                        })
+                        if clean_text:
+                            changes_list.append({
+                                "hour": hour_idx + 1,
+                                "text": clean_text
+                            })
 
-            takes_place = day_data.get("takesPlace", "") or ""
+            raw_takes_place = day_data.get("takesPlace", "") or ""
+            takes_place = raw_takes_place.strip() if self.is_takes_place_relevant(raw_takes_place, target_class) else ""
             class_schedule[date] = {
                 "changes": changes_list,
-                "takesPlace": takes_place.strip(),
+                "takesPlace": takes_place,
                 "inWork": day_data.get("info", {}).get("inWork", False)
             }
 
@@ -191,6 +274,15 @@ class JecnaClient:
                     "type": "takesPlace",
                     "text": new_tp,
                     "summary": f"{formatted_date} (Oznámení dne): {new_tp}"
+                })
+            elif old_tp and not new_tp:
+                diffs.append({
+                    "date": date,
+                    "formatted_date": formatted_date,
+                    "hour": 0,
+                    "type": "cancelled",
+                    "old_text": old_tp,
+                    "summary": f"{formatted_date} (Oznámení zrušeno): {old_tp}"
                 })
 
         return diffs

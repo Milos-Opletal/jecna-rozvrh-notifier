@@ -40,6 +40,8 @@ services:
 
       # 2. Discord Webhook URL (creates rich embed with fields)
       - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL:-}
+      # Optional separate Discord webhook URL for morning notification
+      - MORNING_DISCORD_WEBHOOK_URL=${MORNING_DISCORD_WEBHOOK_URL:-}
 
       # 3. Telegram Bot Notifications
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}

@@ -177,7 +177,8 @@ def check_and_send_morning_notification(
         changes=morning_items,
         custom_title=title,
         custom_message=body,
-        targets=MORNING_NOTIFICATION_TARGETS
+        targets=MORNING_NOTIFICATION_TARGETS,
+        is_morning=True
     )
 
     return today_str
@@ -205,9 +206,10 @@ def main():
     if not webhook_dispatcher.has_any_webhook():
         logger.warning("⚠️ No webhooks are currently configured! Set HOMEASSISTANT_WEBHOOK_URL, DISCORD_WEBHOOK_URL, NTFY_URL, etc.")
     else:
-        logger.info("Configured webhooks: HA=%s, Discord=%s, Telegram=%s, ntfy=%s, Slack=%s, Generic=%s",
+        logger.info("Configured webhooks: HA=%s, Discord=%s, MorningDiscord=%s, Telegram=%s, ntfy=%s, Slack=%s, Generic=%s",
             bool(webhook_dispatcher.ha_webhook_url),
             bool(webhook_dispatcher.discord_webhook_url),
+            bool(webhook_dispatcher.morning_discord_webhook_url),
             bool(webhook_dispatcher.telegram_token),
             bool(webhook_dispatcher.ntfy_url),
             bool(webhook_dispatcher.slack_webhook_url),

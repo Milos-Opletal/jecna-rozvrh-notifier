@@ -1,83 +1,80 @@
-# Ječná Mimořádný Rozvrh Notifier 🔔
+# jecna-rozvrh-notifier
 
-Samostatný, lehký Docker kontejner, který každých **15 minut** (nebo dle nastavení) automaticky monitoruje **mimořádný rozvrh (suplování)** pro třídu studenta ze **SPŠE Ječná**.
+Docker kontejner pro automatické monitorování mimořádného rozvrhu (suplování) pro zvolenou třídu ze SPŠE Ječná.
 
-Při zjištění nové změny (přidání suplování, změna hodiny/učebny, odpadnutí hodiny, celodenní poznámka nebo oznámení) okamžitě odešle upozornění přes nakonfigurované webhooky.
-
----
-
-## 🚀 Hlavní funkce
-
-- ⏱️ **Kontrola každých 15 minut** (přesně odpovídá požadavku a intervalu aktualizací školy).
-- 🎓 **Bezpečné a bez přihlašování** – **nejsou potřeba žádné přihlašovací údaje ani heslo**, stačí zadat sledovanou třídu (`CLASS_NAME=C4b`).
-- 💾 **Perzistentní stav** v `/data/state.json` – upozorňuje pouze na skutečně **nové** změny (žádný spam při restartu či aktualizaci).
-- 📋 **Kompletní přehled v každé notifikaci** – při zjištění nové změny zopakuje všechna aktuální suplování pro třídu, takže vidíte ucelený stav rozvrhu.
-- ☀️ **Volitelná ranní notifikace** – možnost nastavit si ranní souhrn (např. v 07:00) a vybrat, na které webhooky má dorazit (např. pouze Home Assistant nebo Home Assistant + Discord).
-- 🌐 **Podpora více webhooků současně**:
-  - **Home Assistant Webhook** (pro notifikace na mobil a integraci do chytré domácnosti)
-  - **Discord Webhook** (barevný embed s jednotlivými hodinami a předměty)
-  - **Telegram Bot** (přímá zpráva přes Telegram bota)
-  - **ntfy.sh** (bezplatné mobilní push notifikace na Android / iOS bez nutnosti vlastního serveru)
-  - **Slack**
-  - **Obecný Generic HTTP JSON Webhook**
-- 🐳 **Optimalizováno pro Portainer & Auto-Update**.
+V nastaveném intervalu kontroluje změny rozvrhu (nová suplování, změny hodin, učeben, odpadlé hodiny či celodenní oznámení) a při detekci změn odesílá upozornění přes nakonfigurované webhooky.
 
 ---
 
-## 🛠️ Nasazení v Portaineru (s Auto-Update)
+## Funkce
 
-Portainer umožňuje nasadit stack přímo z Git repozitáře a automaticky jej aktualizovat při každém commitu do větve `main`.
+- **Pravidelná kontrola**: Automatické dotazování v nastavitelném intervalu (výchozí 15 minut).
+- **Bez přihlašovacích údajů**: Nevyžaduje heslo, konfiguruje se pouze název sledované třídy (`CLASS_NAME=C4b`).
+- **Perzistentní stav**: Ukládání historie do `/data/state.json`, notifikace se posílají pouze při zjištění nových změn.
+- **Souhrn v notifikaci**: Při zjištění změny posílá kompletní přehled aktuálních suplování dané třídy.
+- **Ranní souhrnná notifikace**: Možnost odeslání ranního přehledu v určený čas s volbou cílových služeb.
+- **Podpora webhooků**:
+  - Home Assistant
+  - Discord (včetně volitelného odděleného webhooku pro ranní souhrn)
+  - Telegram Bot
+  - ntfy.sh
+  - Slack
+  - Obecný HTTP JSON webhook
+- **Podpora Dockeru a Portaineru**: Připraveno pro spuštění přes Docker Compose nebo Portainer Git stack.
 
-### Postup krok za krokem:
+---
 
-1. Otevřete **Portainer** -> **Stacks** -> **Add stack**.
+## Nasazení v Portaineru
+
+Portainer umožňuje nasadit stack přímo z Git repozitáře a volitelně jej automaticky aktualizovat při změnách ve větvi `main`.
+
+### Postup nastavení:
+
+1. V Portaineru přejděte do **Stacks** -> **Add stack**.
 2. Zvolte metodu **Repository**.
-3. Vyplňte:
+3. Vyplňte parametry:
    - **Name:** `jecna-rozvrh-notifier`
-   - **Repository URL:** `https://github.com/<vas-github-ucet>/jecna-rozvrh-notifier`
+   - **Repository URL:** URL repozitáře
    - **Repository reference:** `refs/heads/main`
    - **Compose path:** `docker-compose.yml`
-   - **Authentication:** Zadejte vaše GitHub jméno a Personal Access Token (PAT).
-4. Zapněte **Automatic updates**:
-   - Můžete vybrat **Polling** (např. každých 5 minut Portainer zkontroluje nové commity)
-   - Nebo **Webhook** (Portainer vygeneruje URL, které zavolá GitHub Actions na push).
-5. V sekci **Environment variables** nastavte proměnné (viz tabulka níže):
-   - `CLASS_NAME`: `C4b`
+   - **Authentication:** V případě privátního repozitáře zadejte uživatelské jméno a Personal Access Token (PAT).
+4. Volitelně zapněte **Automatic updates** (Polling nebo Webhook).
+5. V sekci **Environment variables** nastavte požadované proměnné (viz tabulka níže), minimálně:
+   - `CLASS_NAME`: např. `C4b`
    - `CHECK_INTERVAL_SECONDS`: `900`
    - `TZ`: `Europe/Prague`
-   - `HOMEASSISTANT_WEBHOOK_URL`: `http://<HA_IP>:8123/api/webhook/jecna_supl_webhook`
-   - (volitelně) `DISCORD_WEBHOOK_URL`, `NTFY_URL`, atd.
+   - Alespoň jednu webhook URL (např. `HOMEASSISTANT_WEBHOOK_URL`, `DISCORD_WEBHOOK_URL`, `NTFY_URL`).
 6. Klikněte na **Deploy the stack**.
 
 ---
 
-## 💻 Spuštění přes Docker Compose (CLI)
+## Spuštění přes Docker Compose (CLI)
 
 ```bash
-# 1. Klonování
-git clone https://github.com/<vas-github-ucet>/jecna-rozvrh-notifier.git
+# 1. Klonování repozitáře
+git clone https://github.com/<uzivatel>/jecna-rozvrh-notifier.git
 cd jecna-rozvrh-notifier
 
 # 2. Vytvoření konfigurace
 cp .env.example .env
-nano .env   # Upravte přihlašovací údaje a webhook URL
+nano .env
 
 # 3. Spuštění kontejneru na pozadí
 docker compose up -d --build
 ```
 
-Logy můžete sledovat příkazem:
+Sledování logů:
 ```bash
 docker logs -f jecna-rozvrh-notifier
 ```
 
 ---
 
-## 📱 Konfigurace Webhooků
+## Konfigurace webhooků
 
-### 1. Home Assistant Webhook
+### 1. Home Assistant
 
-Přidejte následující automatizaci do vašeho `automations.yaml` v Home Assistant (nebo vytvořte novou automatizaci přes UI -> Spouštěč: Webhook):
+Přidejte následující automatizaci do `automations.yaml` (nebo vytvořte novou přes UI se spouštěčem typu Webhook):
 
 ```yaml
 alias: "Ječná - Upozornění na suplování"
@@ -89,7 +86,7 @@ trigger:
       - POST
     local_only: false
 action:
-  - action: notify.notify   # nebo např. notify.mobile_app_vas_telefon
+  - action: notify.notify
     data:
       title: "{{ trigger.json.title }}"
       message: "{{ trigger.json.message }}"
@@ -107,22 +104,28 @@ HOMEASSISTANT_WEBHOOK_URL=http://<IP_HOME_ASSISTANT>:8123/api/webhook/jecna_supl
 
 ---
 
-### 2. Discord Webhook
+### 2. Discord
 
-1. Na Discord serveru otevřete **Nastavení kanálu** -> **Integrace** -> **Webhooky** -> **Vytvořit webhook**.
-2. Zkopírujte URL webhooku a vložte do `.env`:
+1. V nastavení kanálu na Discordu přejděte do **Integrace** -> **Webhooky** -> **Vytvořit webhook**.
+2. Zkopírujte URL webhooku a nastavte ji v `.env`:
    ```env
-   DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/123456789/abcdef...
+   DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
    ```
-Při změně pošle přehledný vložený embed s ikonou Ječné a rozpisem hodin.
+
+3. **Oddělený webhook pro ranní notifikaci (volitelné):**
+   Pokud má ranní přehled směřovat do jiného kanálu než průběžná upozornění:
+   ```env
+   MORNING_DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
+   ```
+   Pokud není nastavena, použije se výchozí `DISCORD_WEBHOOK_URL`.
 
 ---
 
-### 3. ntfy.sh (Bleskové push notifikace na mobil)
+### 3. ntfy.sh
 
-Pokud chcete okamžité push notifikace na mobilní telefon bez konfigurace Home Assistant:
-1. Stáhněte si aplikaci **ntfy** z Google Play nebo App Store.
-2. V aplikaci klikněte na `+` a zadejte libovolné unikátní téma, např. `jecna_supl_notifikace`.
+Pro push notifikace na mobil přes službu ntfy:
+1. Nainstalujte aplikaci ntfy na Android nebo iOS.
+2. Přihlaste se k odběru libovolného vlastního tématu (např. `jecna_supl_notifikace`).
 3. V `.env` nastavte:
    ```env
    NTFY_URL=https://ntfy.sh/jecna_supl_notifikace
@@ -132,8 +135,8 @@ Pokud chcete okamžité push notifikace na mobilní telefon bez konfigurace Home
 
 ### 4. Telegram Bot
 
-1. Vytvořte bota přes `@BotFather` a získejte `BOT_TOKEN`.
-2. Zjistěte své `CHAT_ID` (např. přes `@userinfobot`).
+1. Vytvořte bota přes `@BotFather` a získejte token.
+2. Zjistěte ID cílového chatu (`CHAT_ID`).
 3. V `.env` nastavte:
    ```env
    TELEGRAM_BOT_TOKEN=123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ
@@ -142,11 +145,11 @@ Pokud chcete okamžité push notifikace na mobilní telefon bez konfigurace Home
 
 ---
 
-## ☀️ Ranní souhrnná notifikace (Morning Notification)
+## Ranní souhrnná notifikace
 
-Kontejner umí každé ráno odeslat souhrn změn v rozvrhu na daný den (např. v 07:00). Můžete si zvolit, na které webhooky má ranní notifikace přijít – například aby se mimořádné změny během dne posílaly na Discord celé třídě, ale ranní notifikace přišla pouze vám do Home Assistantu nebo přes ntfy.
+Kontejner umožňuje odesílat ranní souhrn rozvrhu na daný den ve stanovený čas. Lze určit, do kterých služeb má ranní notifikace směřovat.
 
-V `.env` nastavte:
+Příklad konfigurace v `.env`:
 ```env
 MORNING_NOTIFICATION_ENABLED=true
 MORNING_NOTIFICATION_TIME=07:00
@@ -154,105 +157,85 @@ MORNING_NOTIFICATION_TARGETS=all
 MORNING_NOTIFICATION_ONLY_IF_CHANGES=true
 ```
 
-### Parametry a možné hodnoty:
+### Parametry:
 
-- **`MORNING_NOTIFICATION_ENABLED`**: `true` / `false` – zapnutí nebo vypnutí ranního souhrnu (výchozí: `true`).
-- **`MORNING_NOTIFICATION_TIME`**: Čas odeslání ve formátu `HH:MM` (výchozí: `07:00`). Čas se řídí lokálním časem kontejneru (viz sekce Časové pásmo níže).
-- **`MORNING_NOTIFICATION_TARGETS`**: Cílové služby, kam má ranní zpráva dorazit. Výchozí je `all`.
+- `MORNING_NOTIFICATION_ENABLED`: Povolení ranního souhrnu (`true` / `false`, výchozí: `true`).
+- `MORNING_NOTIFICATION_TIME`: Čas odeslání ve formátu `HH:MM` (výchozí: `07:00`).
+- `MORNING_NOTIFICATION_TARGETS`: Cílové služby (výchozí: `all`). Podporované hodnoty lze kombinovat oddělením čárkou:
+  - `all` / `*`: všechny nakonfigurované webhooky
+  - `ha`, `haos`, `homeassistant`: Home Assistant
+  - `discord`: Discord
+  - `telegram`, `tg`: Telegram
+  - `ntfy`: ntfy.sh
+  - `slack`: Slack
+  - `generic`: obecný JSON webhook
+- `MORNING_NOTIFICATION_ONLY_IF_CHANGES`:
+  - `true` (výchozí): Odešle se pouze v případě, že jsou pro daný den evidovány změny rozvrhu.
+  - `false`: Odešle se každé ráno i v případě, že platí stálý rozvrh.
 
-  **Všechny podporované hodnoty (case-insensitive):**
+### Časové pásmo kontejneru
 
-  | Hodnota / Alias | Cílová služba |
-  |---|---|
-  | `all` nebo `*` | **Všechny** nakonfigurované webhooky (výchozí) |
-  | `ha`, `haos`, `homeassistant`, `home_assistant` | Pouze **Home Assistant** webhook |
-  | `discord` | Pouze **Discord** webhook |
-  | `telegram`, `tg` | Pouze **Telegram** bot |
-  | `ntfy`, `ntfy.sh` | Pouze mobilní push notifikace **ntfy** |
-  | `slack` | Pouze **Slack** webhook |
-  | `generic`, `custom` | Pouze **obecný JSON** webhook |
-
-  Hodnoty lze libovolně **kombinovat čárkou**:
-  - `MORNING_NOTIFICATION_TARGETS=all` *(odešle všem službám)*
-  - `MORNING_NOTIFICATION_TARGETS=haos` *(odešle pouze do Home Assistantu)*
-  - `MORNING_NOTIFICATION_TARGETS=ntfy` *(odešle pouze na ntfy do telefonu)*
-  - `MORNING_NOTIFICATION_TARGETS=haos,discord` *(odešle do HA a na Discord)*
-  - `MORNING_NOTIFICATION_TARGETS=ntfy,telegram` *(odešle na ntfy a do Telegramu)*
-
-- **`MORNING_NOTIFICATION_ONLY_IF_CHANGES`**:
-  - `true` *(výchozí)*: Notifikace se odešle pouze v případě, že jsou pro dnešní den v rozvrhu evidována nějaká suplování nebo celodenní akce. Pokud změny nejsou, ráno vám zbytečně nepípá telefon.
-  - `false`: Ranní zpráva odejde každé ráno bez ohledu na změny (pokud změny nejsou, oznámí: *"nemáte žádné změny, platí stálý rozvrh"*).
-
----
-
-### 🕒 Čas v kontejneru a časové pásmo (Local Time vs UTC+0)
-
-Aby ranní notifikace odešla přesně v zadaný čas (např. `07:00`), musí kontejner pracovat ve správném časovém pásmu:
-
-- V Docker image je nainstalován balíček `tzdata` a výchozí proměnná je nastavena na **`TZ=Europe/Prague`**.
-- Díky tomu běží kontejner v **místním českém čase** (středoevropský čas CET UTC+1 / letní čas CEST UTC+2). Zadaný čas `07:00` je tedy skutečně **7:00 ráno českého času**.
-- Pokud byste proměnnou `TZ` nastavili na `UTC` (nebo časové pásmo neuvedli v prostředí bez `tzdata`), kontejner by běžel v **UTC (+0)** – v takovém případě by `07:00` v kontejneru znamenalo `09:00` (letní čas) nebo `08:00` (zimní čas) v ČR.
-- **Ověření v logu:** Při každém startu kontejner přehledně vypíše svůj aktuální detekovaný čas i časové pásmo:
+Pro správné načasování ranní notifikace kontejner využívá proměnnou `TZ`:
+- Výchozí hodnota je `TZ=Europe/Prague` (středoevropský čas s automatickým přechodem CET/CEST).
+- Při startu kontejner vypisuje detekovaný čas a pásmo do logu:
   ```text
   Container local time: 2026-09-25 09:16:08 (CEST, UTC+0200)
   ```
-  Stav můžete kdykoli zkontrolovat příkazem `docker logs jecna-rozvrh-notifier`.
 
 ---
 
-## ⚙️ Seznam proměnných prostředí
+## Proměnné prostředí
 
 | Proměnná | Výchozí hodnota | Popis |
 |---|---|---|
-| `TZ` | `Europe/Prague` | Časové pásmo kontejneru (zajišťuje lokální čas CET/CEST, aby notifikace neodcházela v UTC+0) |
-| `CHECK_INTERVAL_SECONDS` | `900` (15 minut) | Frekvence kontroly rozvrhu v sekundách |
-| `CLASS_NAME` | `C4b` | Sledovaná třída studenta (např. `C4b`, `A2a`) |
-| `ALERT_ON_STARTUP` | `false` | Zda poslat notifikace na již existující změny při prvním spuštění |
-| `REPEAT_ALL_CHANGES` | `true` | Při nalezení změny poslat kompletní přehled všech platných suplování |
-| `MORNING_NOTIFICATION_ENABLED` | `true` | Zda posílat ranní souhrnnou notifikaci |
-| `MORNING_NOTIFICATION_TIME` | `07:00` | Čas ranní notifikace ve formátu `HH:MM` (místní čas dle `TZ`) |
-| `MORNING_NOTIFICATION_TARGETS` | `all` | Cílové služby pro ranní notifikaci (`all`, `haos`, `discord`, `ntfy`, atd.) |
-| `MORNING_NOTIFICATION_ONLY_IF_CHANGES` | `true` | Poslat ranní notifikaci pouze, pokud jsou pro daný den změny |
-| `SUBSTITUTION_API_URL` | `https://jecnarozvrh.jzitnik.dev/versioned/v3` | Zdrojový endpoint mimořádného rozvrhu |
+| `TZ` | `Europe/Prague` | Časové pásmo kontejneru |
+| `CHECK_INTERVAL_SECONDS` | `900` | Interval kontroly rozvrhu v sekundách |
+| `CLASS_NAME` | `C4b` | Sledovaná třída (např. `C4b`, `A2a`) |
+| `ALERT_ON_STARTUP` | `false` | Zda odeslat notifikace o existujících změnách při prvním spuštění |
+| `REPEAT_ALL_CHANGES` | `true` | Při detekci změny zahrnout do notifikace přehled všech platných suplování |
+| `MORNING_NOTIFICATION_ENABLED` | `true` | Povolení ranní souhrnné notifikace |
+| `MORNING_NOTIFICATION_TIME` | `07:00` | Čas ranní notifikace (`HH:MM`) |
+| `MORNING_NOTIFICATION_TARGETS` | `all` | Cílové služby pro ranní notifikaci |
+| `MORNING_NOTIFICATION_ONLY_IF_CHANGES` | `true` | Odeslat ranní notifikaci pouze při existenci změn |
+| `SUBSTITUTION_API_URL` | `https://jecnarozvrh.jzitnik.dev/versioned/v3` | Endpoint API pro mimořádný rozvrh |
 | `STATE_FILE_PATH` | `/data/state.json` | Cesta k souboru s historií změn |
-| `HOMEASSISTANT_WEBHOOK_URL` | `""` | URL Home Assistant webhooku |
-| `DISCORD_WEBHOOK_URL` | `""` | URL Discord webhooku |
+| `HOMEASSISTANT_WEBHOOK_URL` | `""` | URL webhooku Home Assistant |
+| `DISCORD_WEBHOOK_URL` | `""` | URL výchozího Discord webhooku |
+| `MORNING_DISCORD_WEBHOOK_URL` | `""` | URL Discord webhooku pro ranní notifikace |
 | `TELEGRAM_BOT_TOKEN` | `""` | Token Telegram bota |
-| `TELEGRAM_CHAT_ID` | `""` | ID chatu pro Telegram bota |
-| `NTFY_URL` | `""` | URL tématického kanálu ntfy.sh |
+| `TELEGRAM_CHAT_ID` | `""` | ID chatu v Telegramu |
+| `NTFY_URL` | `""` | URL tématu v ntfy.sh |
 | `SLACK_WEBHOOK_URL` | `""` | URL Slack webhooku |
 | `GENERIC_WEBHOOK_URL` | `""` | URL obecného JSON webhooku |
 
 ---
 
-## 📂 Struktura projektu
+## Struktura projektu
 
 ```
 jecna-rozvrh-notifier/
 ├── .github/
 │   └── workflows/
-│       └── docker-publish.yml # Automatický build GHCR image na push
-├── main.py                    # Hlavní smyčka a zpracování stavu
-├── jecna.py                   # Dotazování na Ječná API a výpočet diffů
-├── webhooks.py                # Odesílání na HA, Discord, Telegram, ntfy, atd.
-├── Dockerfile                 # Alpine Python kontejner
-├── docker-compose.yml         # Konfigurace pro Portainer a Compose
-├── requirements.txt           # Závislosti
-├── .env.example               # Šablona nastavení
-└── README.md                  # Dokumentace
+│       └── docker-publish.yml
+├── main.py
+├── jecna.py
+├── webhooks.py
+├── Dockerfile
+├── docker-compose.yml
+├── requirements.txt
+├── .env.example
+└── README.md
 ```
 
 ---
 
-## 👏 Poděkování & Kredity / Credits
+## Poděkování
 
-Tento projekt staví na skvělé práci komunity okolo SPŠE Ječná:
-
-- **[Tomáš Hůla (@tomhula)](https://github.com/tomhula)** – za vytvoření open-source Android aplikace [JecnaMobile](https://github.com/tomhula/JecnaMobile), která posloužila jako prvotní inspirace a zdroj logiky parseru rozvrhu.
-- **[Jaroslav Žitník (@jzitnik)](https://github.com/jzitnik)** – za vytvoření a provoz spolehlivého API pro rozvrh a suplování [jecnarozvrh.jzitnik.dev](https://jecnarozvrh.jzitnik.dev/), které tento kontejner využívá pro získávání dat.
+- [@jzitnik-dev](https://github.com/jzitnik-dev) – API pro rozvrh a suplování [jecnarozvrh.jzitnik.dev](https://jecnarozvrh.jzitnik.dev/)
+- [@tomhula](https://github.com/tomhula) – [JecnaMobile](https://github.com/tomhula/JecnaMobile)
 
 ---
 
-## 📄 Licence
+## Licence
 
-Tento projekt je open-source pod licencí MIT.
+Tento projekt je licencován pod licencí MIT.

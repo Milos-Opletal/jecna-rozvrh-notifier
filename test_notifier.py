@@ -90,6 +90,100 @@ class TestJecnaNotifier(unittest.TestCase):
         self.assertEqual(normalize_targets(""), {"all"})
         self.assertEqual(normalize_targets(None), {"all"})
         self.assertEqual(normalize_targets("ntfy,telegram"), {"ntfy", "telegram"})
+        self.assertEqual(normalize_targets("morning_discord"), {"discord"})
+
+    def test_webhook_morning_discord_routing(self):
+        from unittest.mock import patch
+        from webhooks import WebhookDispatcher
+
+        dispatcher = WebhookDispatcher(
+            ha_webhook_url="https://ha.example.com/webhook",
+            discord_webhook_url="https://discord.example.com/default",
+            morning_discord_webhook_url="https://discord.example.com/morning"
+        )
+
+        with patch.object(dispatcher, "_send_discord") as mock_discord, \
+             patch.object(dispatcher, "_send_homeassistant") as mock_ha:
+            
+            changes = [{"hour": 1, "text": "M 1 Hr", "summary": "M 1 Hr"}]
+
+            # Regular dispatch (is_morning=False) -> sends to default discord webhook
+            dispatcher.dispatch_all(
+                target_class="C4b",
+                changes=changes,
+                targets="haos,discord",
+                is_morning=False
+            )
+            mock_discord.assert_called_once()
+            self.assertEqual(mock_discord.call_args.kwargs.get("webhook_url"), "https://discord.example.com/default")
+            mock_ha.assert_called_once()
+
+            mock_discord.reset_mock()
+            mock_ha.reset_mock()
+
+            # Morning dispatch (is_morning=True) -> sends to separate morning discord webhook
+            dispatcher.dispatch_all(
+                target_class="C4b",
+                changes=changes,
+                targets="haos,discord",
+                is_morning=True
+            )
+            mock_discord.assert_called_once()
+            self.assertEqual(mock_discord.call_args.kwargs.get("webhook_url"), "https://discord.example.com/morning")
+            mock_ha.assert_called_once()
+
+    def test_webhook_morning_discord_fallback(self):
+        from unittest.mock import patch
+        from webhooks import WebhookDispatcher
+
+        # No morning webhook configured -> should fall back to default discord webhook
+        dispatcher = WebhookDispatcher(
+            discord_webhook_url="https://discord.example.com/default",
+            morning_discord_webhook_url=""
+        )
+
+        with patch.object(dispatcher, "_send_discord") as mock_discord:
+            changes = [{"hour": 1, "text": "M 1 Hr", "summary": "M 1 Hr"}]
+            dispatcher.dispatch_all(
+                target_class="C4b",
+                changes=changes,
+                targets="discord",
+                is_morning=True
+            )
+            mock_discord.assert_called_once()
+            self.assertEqual(mock_discord.call_args.kwargs.get("webhook_url"), "https://discord.example.com/default")
+
+    def test_webhook_only_morning_discord_configured(self):
+        from unittest.mock import patch
+        from webhooks import WebhookDispatcher
+
+        # Only morning webhook configured
+        dispatcher = WebhookDispatcher(
+            discord_webhook_url="",
+            morning_discord_webhook_url="https://discord.example.com/morning"
+        )
+        self.assertTrue(dispatcher.has_any_webhook())
+
+        with patch.object(dispatcher, "_send_discord") as mock_discord:
+            changes = [{"hour": 1, "text": "M 1 Hr", "summary": "M 1 Hr"}]
+            # Regular dispatch does NOT send to Discord
+            dispatcher.dispatch_all(
+                target_class="C4b",
+                changes=changes,
+                targets="discord",
+                is_morning=False
+            )
+            mock_discord.assert_not_called()
+
+            # Morning dispatch sends to morning webhook
+            dispatcher.dispatch_all(
+                target_class="C4b",
+                changes=changes,
+                targets="discord",
+                is_morning=True
+            )
+            mock_discord.assert_called_once()
+            self.assertEqual(mock_discord.call_args.kwargs.get("webhook_url"), "https://discord.example.com/morning")
 
     def test_get_all_active_changes(self):
         from datetime import datetime, timedelta
@@ -112,6 +206,83 @@ class TestJecnaNotifier(unittest.TestCase):
         self.assertEqual(active[0]["text"], "TP odpadá")
         self.assertEqual(active[1]["hour"], 4)
         self.assertEqual(active[2]["type"], "takesPlace")
+
+    def test_is_takes_place_relevant(self):
+        # Target class C4b (grade 4, section b)
+        self.assertFalse(self.client.is_takes_place_relevant("", "C4b"))
+        self.assertFalse(self.client.is_takes_place_relevant("   ", "C4b"))
+        # Unrelated classes or grades
+        self.assertFalse(self.client.is_takes_place_relevant("Exkurze 1.A", "C4b"))
+        self.assertFalse(self.client.is_takes_place_relevant("Exkurze C1a", "C4b"))
+        self.assertFalse(self.client.is_takes_place_relevant("Sportovni den 2. rocnik", "C4b"))
+        self.assertFalse(self.client.is_takes_place_relevant("Projekt A3", "C4b"))
+        self.assertFalse(self.client.is_takes_place_relevant("Skolni kolo SOC v ucebne 12", "C4b"))
+        # Target class mentioned directly or via alias
+        self.assertTrue(self.client.is_takes_place_relevant("Exkurze C4b", "C4b"))
+        self.assertTrue(self.client.is_takes_place_relevant("Exkurze 4.B do divadla", "C4b"))
+        self.assertTrue(self.client.is_takes_place_relevant("Exkurze 4B", "C4b"))
+        self.assertTrue(self.client.is_takes_place_relevant("Exkurze 1.A, 4.B, 2.C", "C4b"))
+        # Target grade mentioned
+        self.assertTrue(self.client.is_takes_place_relevant("Didakticke testy 4. rocniky", "C4b"))
+        self.assertTrue(self.client.is_takes_place_relevant("Maturitni zkousky 4. rocnik", "C4b"))
+        # Whole school cancellations
+        self.assertTrue(self.client.is_takes_place_relevant("Reditelske volno", "C4b"))
+        self.assertTrue(self.client.is_takes_place_relevant("Statni svatek", "C4b"))
+
+    def test_extract_class_schedule_filters_irrelevant_takes_place(self):
+        api_data = {
+            "schedule": {
+                "2026-10-08": {
+                    "info": {"inWork": False},
+                    "changes": {
+                        "C1a": [{"text": "M 1 Hr"}],
+                        "C4b": [None, None, {"text": "TP 21 Ms spoj."}]
+                    },
+                    "takesPlace": "Exkurze 1.A"
+                },
+                "2026-10-09": {
+                    "info": {"inWork": False},
+                    "changes": {
+                        "C1a": [{"text": "CJ 2 Ku"}],
+                        "C4b": []
+                    },
+                    "takesPlace": "Exkurze C4b"
+                }
+            }
+        }
+        res = self.client.extract_class_schedule(api_data, "C4b")
+        # 2026-10-08 takesPlace was for 1.A, so it should be empty for C4b
+        self.assertEqual(res["2026-10-08"]["takesPlace"], "")
+        self.assertEqual(len(res["2026-10-08"]["changes"]), 1)
+        self.assertEqual(res["2026-10-08"]["changes"][0]["hour"], 3)
+
+        # 2026-10-09 takesPlace was for C4b, so it should be retained
+        self.assertEqual(res["2026-10-09"]["takesPlace"], "Exkurze C4b")
+
+    def test_diff_schedules_ignores_other_class_changes(self):
+        old_state = {
+            "2026-10-08": {
+                "changes": [],
+                "takesPlace": ""
+            }
+        }
+        # In new state, an excursion for class 1.A appeared on the server, but nothing for C4b
+        api_data = {
+            "schedule": {
+                "2026-10-08": {
+                    "info": {"inWork": False},
+                    "changes": {
+                        "C1a": [{"text": "M 1 Hr"}],
+                        "C4b": []
+                    },
+                    "takesPlace": "Exkurze 1.A"
+                }
+            }
+        }
+        new_state = self.client.extract_class_schedule(api_data, "C4b")
+        diffs = self.client.diff_schedules(old_state, new_state)
+        # Should be 0 diffs for C4b because neither lessons nor relevant takesPlace changed
+        self.assertEqual(len(diffs), 0)
 
 if __name__ == "__main__":
     unittest.main()

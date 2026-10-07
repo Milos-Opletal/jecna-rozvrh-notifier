@@ -24,7 +24,7 @@ def normalize_targets(targets_input: str | list[str] | set[str] | None) -> set[s
     for item in items:
         if item in ("ha", "haos", "homeassistant", "home_assistant"):
             normalized.add("ha")
-        elif item == "discord":
+        elif item in ("discord", "morning_discord", "discord_morning"):
             normalized.add("discord")
         elif item in ("telegram", "tg"):
             normalized.add("telegram")
@@ -39,20 +39,36 @@ def normalize_targets(targets_input: str | list[str] | set[str] | None) -> set[s
     return normalized
 
 class WebhookDispatcher:
-    def __init__(self):
+    def __init__(
+        self,
+        ha_webhook_url: str | None = None,
+        discord_webhook_url: str | None = None,
+        morning_discord_webhook_url: str | None = None,
+        telegram_token: str | None = None,
+        telegram_chat_id: str | None = None,
+        ntfy_url: str | None = None,
+        slack_webhook_url: str | None = None,
+        generic_webhook_url: str | None = None,
+    ):
         self.session = requests.Session()
-        self.ha_webhook_url = os.getenv("HOMEASSISTANT_WEBHOOK_URL", "").strip()
-        self.discord_webhook_url = os.getenv("DISCORD_WEBHOOK_URL", "").strip()
-        self.telegram_token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
-        self.telegram_chat_id = os.getenv("TELEGRAM_CHAT_ID", "").strip()
-        self.ntfy_url = os.getenv("NTFY_URL", "").strip()
-        self.slack_webhook_url = os.getenv("SLACK_WEBHOOK_URL", "").strip()
-        self.generic_webhook_url = os.getenv("GENERIC_WEBHOOK_URL", "").strip()
+        self.ha_webhook_url = ha_webhook_url if ha_webhook_url is not None else os.getenv("HOMEASSISTANT_WEBHOOK_URL", "").strip()
+        self.discord_webhook_url = discord_webhook_url if discord_webhook_url is not None else os.getenv("DISCORD_WEBHOOK_URL", "").strip()
+        self.morning_discord_webhook_url = (
+            morning_discord_webhook_url
+            if morning_discord_webhook_url is not None
+            else (os.getenv("MORNING_DISCORD_WEBHOOK_URL", "").strip() or os.getenv("DISCORD_MORNING_WEBHOOK_URL", "").strip())
+        )
+        self.telegram_token = telegram_token if telegram_token is not None else os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+        self.telegram_chat_id = telegram_chat_id if telegram_chat_id is not None else os.getenv("TELEGRAM_CHAT_ID", "").strip()
+        self.ntfy_url = ntfy_url if ntfy_url is not None else os.getenv("NTFY_URL", "").strip()
+        self.slack_webhook_url = slack_webhook_url if slack_webhook_url is not None else os.getenv("SLACK_WEBHOOK_URL", "").strip()
+        self.generic_webhook_url = generic_webhook_url if generic_webhook_url is not None else os.getenv("GENERIC_WEBHOOK_URL", "").strip()
 
     def has_any_webhook(self) -> bool:
         return any([
             self.ha_webhook_url,
             self.discord_webhook_url,
+            self.morning_discord_webhook_url,
             (self.telegram_token and self.telegram_chat_id),
             self.ntfy_url,
             self.slack_webhook_url,
@@ -65,7 +81,8 @@ class WebhookDispatcher:
         changes: list[dict],
         custom_title: str | None = None,
         custom_message: str | None = None,
-        targets: str | list[str] | set[str] | None = None
+        targets: str | list[str] | set[str] | None = None,
+        is_morning: bool = False
     ):
         if not changes and not custom_message:
             return
@@ -96,8 +113,9 @@ class WebhookDispatcher:
             self._send_homeassistant(payload_base)
 
         # 2. Discord Webhook
-        if self.discord_webhook_url and (is_all or "discord" in norm_targets):
-            self._send_discord(title, body_message, target_class, changes)
+        discord_url = (self.morning_discord_webhook_url or self.discord_webhook_url) if is_morning else self.discord_webhook_url
+        if discord_url and (is_all or "discord" in norm_targets):
+            self._send_discord(title, body_message, target_class, changes, webhook_url=discord_url)
 
         # 3. Telegram
         if self.telegram_token and self.telegram_chat_id and (is_all or "telegram" in norm_targets):
@@ -123,7 +141,17 @@ class WebhookDispatcher:
         except Exception as e:
             logger.error("Failed to send Home Assistant webhook: %s", e)
 
-    def _send_discord(self, title: str, message: str, target_class: str, changes: list[dict]):
+    def _send_discord(
+        self,
+        title: str,
+        message: str,
+        target_class: str,
+        changes: list[dict],
+        webhook_url: str | None = None
+    ):
+        target_url = webhook_url or self.discord_webhook_url
+        if not target_url:
+            return
         try:
             logger.info("Sending Discord webhook notification...")
             fields = []
@@ -138,13 +166,19 @@ class WebhookDispatcher:
                     "inline": False
                 })
 
+            description = (
+                f"Přehled rozvrhu pro třídu **{target_class}**:\n{message}"
+                if not fields
+                else (f"Přehled rozvrhu pro třídu **{target_class}**:" if title.startswith("☀️") else f"Byla zjištěna nová suplování pro třídu **{target_class}**:")
+            )
+
             discord_payload = {
                 "username": "Ječná Mimořádný Rozvrh",
                 "embeds": [
                     {
                         "title": f"🔔 {title}",
                         "color": 0x3498DB,
-                        "description": f"Byla zjištěna nová suplování pro třídu **{target_class}**:",
+                        "description": description,
                         "fields": fields,
                         "footer": {
                             "text": "SPŠE Ječná • Automatická kontrola"
@@ -153,7 +187,7 @@ class WebhookDispatcher:
                     }
                 ]
             }
-            res = self.session.post(self.discord_webhook_url, json=discord_payload, timeout=10)
+            res = self.session.post(target_url, json=discord_payload, timeout=10)
             logger.info("Discord webhook response: HTTP %d", res.status_code)
             if res.status_code >= 400:
                 logger.warning("Discord embed rejected (HTTP %d: %s). Trying plain text fallback...", res.status_code, res.text)
@@ -161,7 +195,7 @@ class WebhookDispatcher:
                     "username": "Ječná Mimořádný Rozvrh",
                     "content": f"🔔 **{title}**\n{message}"
                 }
-                fallback_res = self.session.post(self.discord_webhook_url, json=fallback_payload, timeout=10)
+                fallback_res = self.session.post(target_url, json=fallback_payload, timeout=10)
                 logger.info("Discord plain text fallback response: HTTP %d", fallback_res.status_code)
         except Exception as e:
             logger.error("Failed to send Discord webhook: %s", e)
