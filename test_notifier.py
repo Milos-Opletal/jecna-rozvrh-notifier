@@ -284,5 +284,136 @@ class TestJecnaNotifier(unittest.TestCase):
         # Should be 0 diffs for C4b because neither lessons nor relevant takesPlace changed
         self.assertEqual(len(diffs), 0)
 
+    def test_calculate_next_sync_delay(self):
+        from datetime import datetime
+        from jecna import calculate_next_sync_delay
+
+        # Case 1: At 08:00:00 with 5 min interval, delay 15s -> next sync is at 08:00:15 (15 seconds)
+        t1 = datetime(2026, 10, 15, 8, 0, 0)
+        self.assertEqual(calculate_next_sync_delay(5, delay_seconds=15, now=t1), 15.0)
+
+        # Case 2: At 08:00:10 (within delay window of 15s) -> 5 seconds remaining
+        t2 = datetime(2026, 10, 15, 8, 0, 10)
+        self.assertEqual(calculate_next_sync_delay(5, delay_seconds=15, now=t2), 5.0)
+
+        # Case 3: At 08:00:20 (past delay window) -> next boundary is 08:05:00 + 15s = 08:05:15
+        # Remaining: 280 seconds until 08:05 + 15 = 295 seconds
+        t3 = datetime(2026, 10, 15, 8, 0, 20)
+        self.assertEqual(calculate_next_sync_delay(5, delay_seconds=15, now=t3), 295.0)
+
+        # Case 4: None or invalid schedule -> fallback to 15 min interval
+        t4 = datetime(2026, 10, 15, 8, 0, 0)
+        self.assertEqual(calculate_next_sync_delay(None, delay_seconds=15, now=t4), 15.0)
+        self.assertEqual(calculate_next_sync_delay(0, delay_seconds=15, now=t4), 15.0)
+
+    def test_check_and_send_morning_notification_weekends(self):
+        from datetime import datetime
+        from unittest.mock import MagicMock
+        from main import check_and_send_morning_notification
+
+        mock_dispatcher = MagicMock()
+        # Saturday: 2026-10-17 07:00
+        sat = datetime(2026, 10, 17, 7, 0)
+        schedule = {
+            "2026-10-17": {
+                "changes": [{"hour": 1, "text": "M 1 Hr"}],
+                "takesPlace": ""
+            }
+        }
+        res = check_and_send_morning_notification(
+            current_schedule=schedule,
+            last_morning_date=None,
+            webhook_dispatcher=mock_dispatcher,
+            class_name="C4b",
+            now=sat
+        )
+        mock_dispatcher.dispatch_all.assert_not_called()
+        self.assertEqual(res, "2026-10-17")
+
+    def test_check_and_send_morning_notification_no_entries_today(self):
+        from datetime import datetime
+        from unittest.mock import MagicMock
+        from main import check_and_send_morning_notification
+
+        mock_dispatcher = MagicMock()
+        # Wednesday: 2026-10-14 07:00, changes for tomorrow only
+        wed = datetime(2026, 10, 14, 7, 0)
+        schedule = {
+            "2026-10-15": {
+                "changes": [{"hour": 1, "text": "M 1 Hr"}],
+                "takesPlace": ""
+            }
+        }
+        res = check_and_send_morning_notification(
+            current_schedule=schedule,
+            last_morning_date=None,
+            webhook_dispatcher=mock_dispatcher,
+            class_name="C4b",
+            now=wed
+        )
+        mock_dispatcher.dispatch_all.assert_not_called()
+        self.assertEqual(res, "2026-10-14")
+
+    def test_check_and_send_morning_notification_sends_when_changes_exist(self):
+        from datetime import datetime
+        from unittest.mock import MagicMock
+        from main import check_and_send_morning_notification
+
+        mock_dispatcher = MagicMock()
+        wed = datetime(2026, 10, 14, 7, 30)
+        schedule = {
+            "2026-10-14": {
+                "changes": [{"hour": 2, "text": "CJ 2 Ku"}],
+                "takesPlace": ""
+            }
+        }
+        res = check_and_send_morning_notification(
+            current_schedule=schedule,
+            last_morning_date=None,
+            webhook_dispatcher=mock_dispatcher,
+            class_name="C4b",
+            now=wed
+        )
+        mock_dispatcher.dispatch_all.assert_called_once()
+        call_kwargs = mock_dispatcher.dispatch_all.call_args.kwargs
+        self.assertTrue(call_kwargs.get("is_morning"))
+        self.assertEqual(res, "2026-10-14")
+
+    def test_check_and_send_morning_notification_outside_hours(self):
+        from datetime import datetime
+        from unittest.mock import MagicMock
+        from main import check_and_send_morning_notification
+
+        mock_dispatcher = MagicMock()
+        schedule = {
+            "2026-10-14": {
+                "changes": [{"hour": 2, "text": "CJ 2 Ku"}],
+                "takesPlace": ""
+            }
+        }
+        # Too early: 04:30
+        early = datetime(2026, 10, 14, 4, 30)
+        res_early = check_and_send_morning_notification(
+            current_schedule=schedule,
+            last_morning_date=None,
+            webhook_dispatcher=mock_dispatcher,
+            class_name="C4b",
+            now=early
+        )
+        mock_dispatcher.dispatch_all.assert_not_called()
+        self.assertIsNone(res_early)
+
+        # After noon: 13:00
+        late = datetime(2026, 10, 14, 13, 0)
+        res_late = check_and_send_morning_notification(
+            current_schedule=schedule,
+            last_morning_date=None,
+            webhook_dispatcher=mock_dispatcher,
+            class_name="C4b",
+            now=late
+        )
+        mock_dispatcher.dispatch_all.assert_not_called()
+        self.assertEqual(res_late, "2026-10-14")
+
 if __name__ == "__main__":
     unittest.main()

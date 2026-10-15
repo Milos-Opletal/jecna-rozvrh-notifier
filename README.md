@@ -8,11 +8,11 @@ V nastaveném intervalu kontroluje změny rozvrhu (nová suplování, změny hod
 
 ## Funkce
 
-- **Pravidelná kontrola**: Automatické dotazování v nastavitelném intervalu (výchozí 15 minut).
+- **Adaptivní synchronizace**: Automatické dotazování navázané na plán aktualizací oficiálního API s nastavitelným zpožděním (výchozí 15 sekund).
 - **Bez přihlašovacích údajů**: Nevyžaduje heslo, konfiguruje se pouze název sledované třídy (`CLASS_NAME=C4b`).
 - **Perzistentní stav**: Ukládání historie do `/data/state.json`, notifikace se posílají pouze při zjištění nových změn.
 - **Souhrn v notifikaci**: Při zjištění změny posílá kompletní přehled aktuálních suplování dané třídy.
-- **Ranní souhrnná notifikace**: Možnost odeslání ranního přehledu v určený čas s volbou cílových služeb.
+- **Ranní souhrnná notifikace**: Automatické odeslání ranního přehledu při první ranní synchronizaci (pouze v pracovní dny a pouze pokud jsou pro daný den evidovány změny rozvrhu).
 - **Podpora webhooků**:
   - Home Assistant
   - Discord (včetně volitelného odděleného webhooku pro ranní souhrn)
@@ -41,8 +41,8 @@ Portainer umožňuje nasadit stack přímo z Git repozitáře a volitelně jej a
 4. Volitelně zapněte **Automatic updates** (Polling nebo Webhook).
 5. V sekci **Environment variables** nastavte požadované proměnné (viz tabulka níže), minimálně:
    - `CLASS_NAME`: např. `C4b`
-   - `CHECK_INTERVAL_SECONDS`: `900`
    - `TZ`: `Europe/Prague`
+   - `SYNC_DELAY_SECONDS`: `15` (volitelné)
    - Alespoň jednu webhook URL (např. `HOMEASSISTANT_WEBHOOK_URL`, `DISCORD_WEBHOOK_URL`, `NTFY_URL`).
 6. Klikněte na **Deploy the stack**.
 
@@ -145,22 +145,32 @@ Pro push notifikace na mobil přes službu ntfy:
 
 ---
 
+## Adaptivní synchronizace s oficiálním API
+
+Aplikace se automaticky přizpůsobuje plánu aktualizací oficiálního API (`currentUpdateSchedule` v odpovědi serveru) a provádí synchronizaci v návaznosti na intervaly serveru s definovaným zpožděním (`SYNC_DELAY_SECONDS`, výchozí 15 sekund). Tím je zajištěno, že se data stáhnou ihned po dokončení aktualizace na straně serveru.
+
+Pokud je server dočasně nedostupný nebo nevrátí informaci o plánu, použije se záložní interval `CHECK_INTERVAL_SECONDS`.
+
+---
+
 ## Ranní souhrnná notifikace
 
-Kontejner umožňuje odesílat ranní souhrn rozvrhu na daný den ve stanovený čas. Lze určit, do kterých služeb má ranní notifikace směřovat.
+Kontejner umožňuje odesílat ranní souhrn rozvrhu pro daný den. Odesílá se automaticky při první ranní synchronizaci (mezi 05:00 a 11:59 lokálního času).
+
+Pravidla pro odeslání:
+- O víkendu (sobota, neděle) se ranní notifikace neodesílá.
+- Pokud pro daný den nejsou evidovány žádné změny (suplování, odpadnutí, relevantní celodenní oznámení), notifikace se neodesílá.
+- Odešle se pouze tehdy, pokud jsou pro sledovanou třídu na dnešní den naplánovány změny.
 
 Příklad konfigurace v `.env`:
 ```env
 MORNING_NOTIFICATION_ENABLED=true
-MORNING_NOTIFICATION_TIME=07:00
 MORNING_NOTIFICATION_TARGETS=all
-MORNING_NOTIFICATION_ONLY_IF_CHANGES=true
 ```
 
 ### Parametry:
 
 - `MORNING_NOTIFICATION_ENABLED`: Povolení ranního souhrnu (`true` / `false`, výchozí: `true`).
-- `MORNING_NOTIFICATION_TIME`: Čas odeslání ve formátu `HH:MM` (výchozí: `07:00`).
 - `MORNING_NOTIFICATION_TARGETS`: Cílové služby (výchozí: `all`). Podporované hodnoty lze kombinovat oddělením čárkou:
   - `all` / `*`: všechny nakonfigurované webhooky
   - `ha`, `haos`, `homeassistant`: Home Assistant
@@ -169,13 +179,10 @@ MORNING_NOTIFICATION_ONLY_IF_CHANGES=true
   - `ntfy`: ntfy.sh
   - `slack`: Slack
   - `generic`: obecný JSON webhook
-- `MORNING_NOTIFICATION_ONLY_IF_CHANGES`:
-  - `true` (výchozí): Odešle se pouze v případě, že jsou pro daný den evidovány změny rozvrhu.
-  - `false`: Odešle se každé ráno i v případě, že platí stálý rozvrh.
 
 ### Časové pásmo kontejneru
 
-Pro správné načasování ranní notifikace kontejner využívá proměnnou `TZ`:
+Pro správné určení dne a ranního okna kontejner využívá proměnnou `TZ`:
 - Výchozí hodnota je `TZ=Europe/Prague` (středoevropský čas s automatickým přechodem CET/CEST).
 - Při startu kontejner vypisuje detekovaný čas a pásmo do logu:
   ```text
@@ -189,14 +196,13 @@ Pro správné načasování ranní notifikace kontejner využívá proměnnou `T
 | Proměnná | Výchozí hodnota | Popis |
 |---|---|---|
 | `TZ` | `Europe/Prague` | Časové pásmo kontejneru |
-| `CHECK_INTERVAL_SECONDS` | `900` | Interval kontroly rozvrhu v sekundách |
+| `SYNC_DELAY_SECONDS` | `15` | Zpoždění synchronizace po plánované aktualizaci oficiálního API v sekundách |
+| `CHECK_INTERVAL_SECONDS` | `900` | Záložní interval kontroly rozvrhu v sekundách (při výpadku API) |
 | `CLASS_NAME` | `C4b` | Sledovaná třída (např. `C4b`, `A2a`) |
 | `ALERT_ON_STARTUP` | `false` | Zda odeslat notifikace o existujících změnách při prvním spuštění |
 | `REPEAT_ALL_CHANGES` | `true` | Při detekci změny zahrnout do notifikace přehled všech platných suplování |
 | `MORNING_NOTIFICATION_ENABLED` | `true` | Povolení ranní souhrnné notifikace |
-| `MORNING_NOTIFICATION_TIME` | `07:00` | Čas ranní notifikace (`HH:MM`) |
 | `MORNING_NOTIFICATION_TARGETS` | `all` | Cílové služby pro ranní notifikaci |
-| `MORNING_NOTIFICATION_ONLY_IF_CHANGES` | `true` | Odeslat ranní notifikaci pouze při existenci změn |
 | `SUBSTITUTION_API_URL` | `https://jecnarozvrh.jzitnik.dev/versioned/v3` | Endpoint API pro mimořádný rozvrh |
 | `STATE_FILE_PATH` | `/data/state.json` | Cesta k souboru s historií změn |
 | `HOMEASSISTANT_WEBHOOK_URL` | `""` | URL webhooku Home Assistant |

@@ -39,6 +39,32 @@ def format_czech_date(date_str: str) -> str:
     except Exception:
         return date_str
 
+def calculate_next_sync_delay(
+    current_update_schedule: int | None,
+    delay_seconds: int = 15,
+    now: datetime | None = None
+) -> float:
+    """
+    Calculates sleep duration in seconds until the next official API update plus delay_seconds.
+    The official API updates at regular intervals (e.g. 5, 15, 30, 60, or 180 minutes)
+    aligned to clock boundaries (XX:00, XX:05, XX:15, etc.).
+    """
+    if now is None:
+        now = datetime.now()
+
+    interval_minutes = current_update_schedule if (current_update_schedule and current_update_schedule > 0) else 15
+    interval_seconds = interval_minutes * 60
+
+    total_seconds_today = now.hour * 3600 + now.minute * 60 + now.second + (now.microsecond / 1_000_000)
+    seconds_into_interval = total_seconds_today % interval_seconds
+
+    if seconds_into_interval < delay_seconds:
+        sleep_seconds = delay_seconds - seconds_into_interval
+    else:
+        sleep_seconds = (interval_seconds - seconds_into_interval) + delay_seconds
+
+    return max(sleep_seconds, 5.0)
+
 class JecnaClient:
     def __init__(self, api_url: str = "https://jecnarozvrh.jzitnik.dev/versioned/v3"):
         self.api_url = api_url

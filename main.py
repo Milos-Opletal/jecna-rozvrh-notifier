@@ -11,7 +11,7 @@ except ImportError:
     pass
 
 from datetime import datetime
-from jecna import JecnaClient
+from jecna import JecnaClient, calculate_next_sync_delay
 from webhooks import WebhookDispatcher
 
 logging.basicConfig(
@@ -21,7 +21,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger("JecnaNotifier")
 
-CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL_SECONDS", "900"))
+CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL_SECONDS", "300"))
+SYNC_DELAY_SECONDS = int(os.getenv("SYNC_DELAY_SECONDS", "15"))
 CLASS_NAME = os.getenv("CLASS_NAME", "C4b").strip() or "C4b"
 SUBSTITUTION_API_URL = os.getenv("SUBSTITUTION_API_URL", "https://jecnarozvrh.jzitnik.dev/versioned/v3").strip()
 STATE_FILE = os.getenv("STATE_FILE_PATH", "/data/state.json")
@@ -32,9 +33,7 @@ REPEAT_ALL_CHANGES = os.getenv("REPEAT_ALL_CHANGES", "true").lower() in ("true",
 
 # Morning notification options
 MORNING_NOTIFICATION_ENABLED = os.getenv("MORNING_NOTIFICATION_ENABLED", "true").lower() in ("true", "1", "yes")
-MORNING_NOTIFICATION_TIME = os.getenv("MORNING_NOTIFICATION_TIME", "07:00").strip() or "07:00"
 MORNING_NOTIFICATION_TARGETS = os.getenv("MORNING_NOTIFICATION_TARGETS", "all").strip() or "all"
-MORNING_NOTIFICATION_ONLY_IF_CHANGES = os.getenv("MORNING_NOTIFICATION_ONLY_IF_CHANGES", "true").lower() in ("true", "1", "yes")
 
 def make_fingerprint(item: dict) -> str:
     """Generate a unique fingerprint for a change to prevent duplicate notifications."""
@@ -106,32 +105,29 @@ def check_and_send_morning_notification(
     current_schedule: dict,
     last_morning_date: str | None,
     webhook_dispatcher: WebhookDispatcher,
-    class_name: str
+    class_name: str,
+    now: datetime | None = None
 ) -> str | None:
     if not MORNING_NOTIFICATION_ENABLED:
         return last_morning_date
 
-    now = datetime.now()
+    if now is None:
+        now = datetime.now()
     today_str = now.strftime("%Y-%m-%d")
 
     # Already sent today
     if last_morning_date == today_str:
         return last_morning_date
 
-    # Parse target morning time (HH:MM)
-    try:
-        parts = MORNING_NOTIFICATION_TIME.split(":")
-        target_hour = int(parts[0])
-        target_minute = int(parts[1]) if len(parts) > 1 else 0
-    except Exception:
-        target_hour, target_minute = 7, 0
+    # Do not send morning notifications on weekends (Saturday / Sunday)
+    if now.weekday() >= 5:
+        return today_str
 
-    current_minutes = now.hour * 60 + now.minute
-    target_minutes = target_hour * 60 + target_minute
-
-    # Only send at or after the scheduled time, but before 12:00 noon
-    if current_minutes < target_minutes or now.hour >= 12:
+    # Morning window: 05:00 to 11:59 local time
+    if now.hour < 5:
         return last_morning_date
+    if now.hour >= 12:
+        return today_str
 
     # Filter for today's entries only
     today_data = current_schedule.get(today_str, {})
@@ -139,8 +135,9 @@ def check_and_send_morning_notification(
     today_takes_place = today_data.get("takesPlace", "").strip()
     has_entries = bool(today_changes or today_takes_place)
 
-    if not has_entries and MORNING_NOTIFICATION_ONLY_IF_CHANGES:
-        logger.info("Morning check (%s): No substitutions for today. Skipping morning notification.", today_str)
+    # Do not send notification in the morning if nothing will happen today
+    if not has_entries:
+        logger.info("Morning check (%s): Nothing happening today for class %s. Skipping morning notification.", today_str, class_name)
         return today_str
 
     from jecna import format_czech_date
@@ -165,13 +162,10 @@ def check_and_send_morning_notification(
             "summary": f"{formatted_today} (Oznámení dne): {today_takes_place}"
         })
 
-    title = f"☀️ Ranní přehled rozvrhu ({class_name})"
-    if has_entries:
-        body = f"☀️ Dobré ráno! Dnešní přehled změn v rozvrhu ({formatted_today}):\n" + "\n".join(f"• {c['summary']}" for c in morning_items)
-    else:
-        body = f"☀️ Dobré ráno! Dnes ({formatted_today}) nemáte v mimořádném rozvrhu žádné změny, platí stálý rozvrh."
+    title = f"Ranní přehled rozvrhu ({class_name})"
+    body = f"Dobré ráno! Dnešní přehled změn v rozvrhu ({formatted_today}):\n" + "\n".join(f"• {c['summary']}" for c in morning_items)
 
-    logger.info("☀️ Sending morning notification to targets '%s'...", MORNING_NOTIFICATION_TARGETS)
+    logger.info("Sending morning notification to targets '%s'...", MORNING_NOTIFICATION_TARGETS)
     webhook_dispatcher.dispatch_all(
         target_class=class_name,
         changes=morning_items,
@@ -192,11 +186,11 @@ def main():
     tz_name = now_local.tzname() or "UTC"
     utc_offset = now_local.strftime("%z")
     logger.info("Container local time: %s (%s, UTC%s)", now_local.strftime("%Y-%m-%d %H:%M:%S"), tz_name, utc_offset)
-    logger.info("Check interval: %d seconds (%d minutes)", CHECK_INTERVAL, CHECK_INTERVAL // 60)
+    logger.info("API sync: dynamic schedule with %d seconds delay after official API updates (fallback: %ds)", SYNC_DELAY_SECONDS, CHECK_INTERVAL)
     logger.info("Monitored class: %s", CLASS_NAME)
     logger.info("Repeat all changes on update: %s", REPEAT_ALL_CHANGES)
-    logger.info("Morning notification: enabled=%s (time: %s, targets: %s, only_if_changes=%s)",
-                MORNING_NOTIFICATION_ENABLED, MORNING_NOTIFICATION_TIME, MORNING_NOTIFICATION_TARGETS, MORNING_NOTIFICATION_ONLY_IF_CHANGES)
+    logger.info("Morning notification: enabled=%s (targets: %s, sent on morning sync only if changes exist today)",
+                MORNING_NOTIFICATION_ENABLED, MORNING_NOTIFICATION_TARGETS)
     logger.info("State file: %s", STATE_FILE)
     logger.info("API URL: %s", SUBSTITUTION_API_URL)
 
@@ -224,6 +218,7 @@ def main():
         logger.info("Loaded existing state: %d dates, %d historical notified changes.", len(schedule_state), len(notified_history))
 
     while True:
+        sleep_duration = float(CHECK_INTERVAL)
         try:
             logger.info("Fetching latest substitution schedule for class '%s'...", CLASS_NAME)
             raw_data = jecna_client.fetch_substitutions()
@@ -231,7 +226,11 @@ def main():
             if raw_data:
                 current_schedule = jecna_client.extract_class_schedule(raw_data, CLASS_NAME)
                 status_info = raw_data.get("status", {})
-                logger.info("Fetched schedule successfully (last updated on server: %s)", status_info.get("lastUpdated", "unknown"))
+                server_schedule = status_info.get("currentUpdateSchedule")
+                logger.info("Fetched schedule successfully (last updated on server: %s, server interval: %s min)",
+                            status_info.get("lastUpdated", "unknown"), server_schedule)
+
+                sleep_duration = calculate_next_sync_delay(server_schedule, delay_seconds=SYNC_DELAY_SECONDS)
 
                 if is_first_run:
                     logger.info("Baseline initialization: Priming current known schedule (%d dates tracked for %s).", len(current_schedule), CLASS_NAME)
@@ -293,9 +292,9 @@ def main():
                         schedule_state = current_schedule
                         save_state(schedule_state, notified_history, last_morning_date)
                     else:
-                        logger.info("✅ No changes detected for class %s. Everything is up to date.", CLASS_NAME)
+                        logger.info("No changes detected for class %s. Everything is up to date.", CLASS_NAME)
 
-                # Check and send morning notification if time has arrived
+                # Check and send morning notification
                 last_morning_date = check_and_send_morning_notification(
                     current_schedule=current_schedule,
                     last_morning_date=last_morning_date,
@@ -305,13 +304,15 @@ def main():
                 save_state(schedule_state, notified_history, last_morning_date)
 
             else:
-                logger.warning("Could not retrieve data from substitution server. Will retry next interval.")
+                logger.warning("Could not retrieve data from substitution server. Will retry in %d seconds.", CHECK_INTERVAL)
+                sleep_duration = float(CHECK_INTERVAL)
 
         except Exception as e:
             logger.error("Error during check cycle: %s", e, exc_info=True)
+            sleep_duration = float(CHECK_INTERVAL)
 
-        logger.info("Sleeping for %d seconds (next check in %d mins)...\n", CHECK_INTERVAL, CHECK_INTERVAL // 60)
-        time.sleep(CHECK_INTERVAL)
+        logger.info("Next sync in %.1f seconds (~%.1f mins)...\n", sleep_duration, sleep_duration / 60)
+        time.sleep(sleep_duration)
 
 if __name__ == "__main__":
     main()

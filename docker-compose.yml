@@ -7,8 +7,11 @@ services:
     volumes:
       - jecna-data:/data
     environment:
-      # Check interval in seconds (900 = 15 minutes)
+      # Check interval in seconds (fallback if dynamic sync schedule is unavailable)
       - CHECK_INTERVAL_SECONDS=${CHECK_INTERVAL_SECONDS:-900}
+
+      # Sync delay in seconds after scheduled official API update
+      - SYNC_DELAY_SECONDS=${SYNC_DELAY_SECONDS:-15}
 
       # Student class (e.g. C4b)
       - CLASS_NAME=${CLASS_NAME:-C4b}
@@ -24,9 +27,7 @@ services:
 
       # Morning daily overview notification options
       - MORNING_NOTIFICATION_ENABLED=${MORNING_NOTIFICATION_ENABLED:-true}
-      - MORNING_NOTIFICATION_TIME=${MORNING_NOTIFICATION_TIME:-07:00}
       - MORNING_NOTIFICATION_TARGETS=${MORNING_NOTIFICATION_TARGETS:-all}
-      - MORNING_NOTIFICATION_ONLY_IF_CHANGES=${MORNING_NOTIFICATION_ONLY_IF_CHANGES:-true}
 
       # Substitution API URL
       - SUBSTITUTION_API_URL=${SUBSTITUTION_API_URL:-https://jecnarozvrh.jzitnik.dev/versioned/v3}
